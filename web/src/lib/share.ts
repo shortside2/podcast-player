@@ -24,7 +24,15 @@ export async function sendToClaude(text: string): Promise<string> {
 
 /** ファイルを保存する。iPhone では共有シートの「"ファイル"に保存」、Mac ではダウンロードになる */
 export async function saveFile(name: string, text: string, type = 'application/json'): Promise<void> {
-  const file = new File([text], name, { type });
+  await saveBlob(name, new Blob([text], { type }));
+}
+
+/**
+ * Blob をファイルとして保存・送信する。
+ * iPhone では共有シートが開き、「"ファイル"に保存」・AirDrop・メッセージなどを選べる。
+ */
+export async function saveBlob(name: string, blob: Blob): Promise<void> {
+  const file = new File([blob], name, { type: blob.type });
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });

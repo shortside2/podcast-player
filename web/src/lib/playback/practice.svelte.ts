@@ -38,6 +38,8 @@ export class Practice {
   private stopTimer: ReturnType<typeof setTimeout> | null = null;
   private mine: HTMLAudioElement | null = null;
   private mineUrl: string | null = null;
+  private mineFor: string | null = null;
+  private mineResolve: (() => void) | null = null;
   private offFrame: (() => void) | null = null;
   private cancelled = false;
 
@@ -150,21 +152,53 @@ export class Practice {
     if (this.recorder?.state === 'recording') this.recorder.stop();
   }
 
-  /** 自分の録音を再生する */
-  playMine(rec: Recording): Promise<void> {
+  /**
+   * 自分の録音を再生できる状態にしておく。必ずボタンのタップの中で（await より前に）呼ぶこと。
+   * iPhone は、タップした瞬間に一度再生した音声要素でないと、あとから再生させてくれないため、
+   * ここで無音のまま一瞬再生して「許可」を取っておく。
+   */
+  private prepareMine(rec: Recording): HTMLAudioElement {
+    const a = this.createMine(rec);
+    a.muted = true;
+    void a
+      .play()
+      .then(() => {
+        // すでに本番の再生が始まっていたら止めない
+        if (this.state !== 'mine') {
+          a.pause();
+          a.currentTime = 0;
+        }
+      })
+      .catch(() => {})
+      .finally(() => (a.muted = false));
+    return a;
+  }
+
+  private createMine(rec: Recording): HTMLAudioElement {
     this.stopMine();
-    this.engine.pause();
-    this.state = 'mine';
     this.mineUrl = URL.createObjectURL(rec.blob);
     const a = new Audio(this.mineUrl);
+    a.preload = 'auto';
     this.mine = a;
+    this.mineFor = rec.id;
+    return a;
+  }
+
+  /** 自分の録音を再生する */
+  playMine(rec: Recording): Promise<void> {
+    const a = this.mine && this.mineFor === rec.id ? this.mine : this.createMine(rec);
+    a.muted = false;
+    a.currentTime = 0;
+    this.engine.pause();
+    this.state = 'mine';
     return new Promise<void>((resolve) => {
       const end = () => {
+        this.mineResolve = null;
         if (this.state === 'mine') this.state = 'idle';
         resolve();
       };
+      this.mineResolve = end;
       a.onended = end;
-      a.onpause = end;
       a.onerror = end;
       void a.play().catch(end);
     });
@@ -174,6 +208,8 @@ export class Practice {
   async compare(target: PracticeTarget, rec: Recording, times = 1): Promise<void> {
     this.cancel();
     this.cancelled = false;
+    // タップの瞬間に自分の声の再生準備をしておく（お手本のあとで再生できるように）
+    this.prepareMine(rec);
     for (let i = 0; i < times && !this.cancelled; i++) {
       await this.playModel(target);
       if (this.cancelled) break;
@@ -189,7 +225,7 @@ export class Practice {
     this.offFrame?.();
     this.offFrame = null;
     this.loop.suspended = false;
-    this.stopMine();
+    this.pauseMine();
     this.stopRecording();
     if (this.state === 'model') this.engine.pause();
     this.state = 'idle';
@@ -197,15 +233,25 @@ export class Practice {
 
   destroy(): void {
     this.cancel();
+    this.stopMine();
     this.releaseMic();
   }
 
-  private stopMine(): void {
+  /** 自分の声の再生を止める（聴き比べの繰り返しでも使えるよう、要素は残しておく） */
+  private pauseMine(): void {
     if (this.mine) {
-      this.mine.onpause = null;
+      this.mine.onended = null;
+      this.mine.onerror = null;
       this.mine.pause();
-      this.mine = null;
     }
+    // 再生の終わりを待っている処理（聴き比べなど）を先に進める
+    this.mineResolve?.();
+  }
+
+  private stopMine(): void {
+    this.pauseMine();
+    this.mine = null;
+    this.mineFor = null;
     if (this.mineUrl) URL.revokeObjectURL(this.mineUrl);
     this.mineUrl = null;
   }

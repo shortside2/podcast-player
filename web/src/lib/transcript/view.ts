@@ -34,6 +34,10 @@ export class TranscriptView {
   /** 文 → その文を含む段落の日本語訳の要素（訳がなければ undefined） */
   private jaOfSentence: (HTMLElement | undefined)[] = [];
   private curJa: HTMLElement | undefined;
+  /** テキストを隠すモード */
+  private hideMode = false;
+  /** 隠すモードで、聞き終えた文を自動で表示する */
+  private autoReveal = false;
   private sentenceEls: HTMLElement[] = [];
   private curWord = -2;
   private curSentence = -2;
@@ -81,6 +85,10 @@ export class TranscriptView {
     this.curWord = w;
 
     if (s !== this.curSentence) {
+      // 隠すモードで「聞き終えた文を表示」なら、次の文に進んだときに前の文を見せる
+      if (this.hideMode && this.autoReveal && this.curSentence >= 0 && s === this.curSentence + 1) {
+        this.sentenceEls[this.curSentence]?.classList.add('shown');
+      }
       if (this.curSentence >= 0) this.sentenceEls[this.curSentence]?.classList.remove('cur-s');
       if (s >= 0) this.sentenceEls[s]?.classList.add('cur-s');
       this.curSentence = s;
@@ -394,6 +402,18 @@ export class TranscriptView {
     this.content.replaceChildren(frag);
   }
 
+  /** テキストを隠すモード（伏せ字）のオン・オフ */
+  setHideMode(on: boolean, autoReveal: boolean): void {
+    this.hideMode = on;
+    this.autoReveal = autoReveal;
+    this.content.classList.toggle('hide', on);
+  }
+
+  /** 伏せ字をすべて表示 / すべて隠す */
+  revealAll(show: boolean): void {
+    for (const el of this.sentenceEls) el?.classList.toggle('shown', show);
+  }
+
   /** 日本語訳の表示・非表示 */
   setShowJa(on: boolean): void {
     this.content.classList.toggle('show-ja', on);
@@ -413,6 +433,14 @@ export class TranscriptView {
       if (topic) {
         this.opts.onTopicTap?.(Number(topic.dataset.topic));
         return;
+      }
+      // 隠すモードで伏せ字の文をタップしたら、その文を表示する（再生位置は動かさない）
+      if (this.hideMode) {
+        const sent = (e.target as HTMLElement).closest<HTMLElement>('[data-s]');
+        if (sent && !sent.classList.contains('shown')) {
+          sent.classList.add('shown');
+          return;
+        }
       }
       const target = (e.target as HTMLElement).closest<HTMLElement>('[data-w]');
       if (!target) return;

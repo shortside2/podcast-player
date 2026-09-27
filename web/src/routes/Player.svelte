@@ -28,6 +28,8 @@
   const NEW_SECTION_SEC = 120;
   const AB_DEFAULTS_KEY = 'listenloop.abDefaults';
   const SHOW_JA_KEY = 'listenloop.showJa';
+  const HIDE_KEY = 'listenloop.hideMode';
+  const AUTO_REVEAL_KEY = 'listenloop.autoReveal';
 
   type Panel = 'none' | 'speed' | 'settings' | 'ranges' | 'ab' | 'section' | 'mark' | 'practice';
   const AUTO_MARK_KEY = 'listenloop.autoMarkAB';
@@ -63,6 +65,9 @@
   /** 区間の始まりだけ決めて、終わりを待っている（単語番号） */
   let pendingSecStart = $state<number | null>(null);
   let showJa = $state(readShowJa());
+  /** テキストを隠すモード */
+  let hideMode = $state(readFlag(HIDE_KEY));
+  let autoReveal = $state(readFlag(AUTO_REVEAL_KEY));
   const hasJa = $derived(!!transcript?.doc.paragraphs?.some((p) => p.ja));
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -107,6 +112,7 @@
     });
     view.setTimingOffset(timingOffset);
     view.setShowJa(showJa);
+    view.setHideMode(hideMode, autoReveal);
     // 先に音声を読み込んで、最初のハイライトが「続きの位置」から始まるようにする
     engine.load(audio.blob, startAt ?? ep.lastPosition, ep.rate);
     disposers.push(engine.onFrame((t) => view?.update(t)));
@@ -389,6 +395,28 @@
     }
   }
 
+  function setFlag(key: string, on: boolean) {
+    try {
+      localStorage.setItem(key, on ? '1' : '0');
+    } catch {
+      /* 無視 */
+    }
+  }
+
+  function toggleHide() {
+    hideMode = !hideMode;
+    setFlag(HIDE_KEY, hideMode);
+    if (hideMode) view?.revealAll(false);
+    view?.setHideMode(hideMode, autoReveal);
+    showToast(hideMode ? 'テキストを隠しました（文をタップで表示）' : 'テキストを表示しました');
+  }
+
+  function toggleAutoReveal() {
+    autoReveal = !autoReveal;
+    setFlag(AUTO_REVEAL_KEY, autoReveal);
+    view?.setHideMode(hideMode, autoReveal);
+  }
+
   /** 話題の範囲を区間にする */
   function selectTopic(ti: number) {
     const tx = transcript;
@@ -561,6 +589,7 @@
   <header>
     <button class="icon-btn" aria-label="一覧に戻る" onclick={() => router.go('#/')}><Icon name="chevron-left" /></button>
     <h1>{episode?.title ?? ''}</h1>
+    <button class="icon-btn" class:active={hideMode} aria-label="テキストを隠す" onclick={toggleHide}><Icon name={hideMode ? 'eye-off' : 'eye'} /></button>
     <button class="icon-btn" aria-label="記録一覧" onclick={() => router.go(`#/marks/${id}`)}><Icon name="bookmark" /></button>
     {#if hasJa}
       <button class="icon-btn ja-btn" class:active={showJa} aria-label="日本語訳の表示" onclick={toggleJa}>訳</button>
@@ -571,6 +600,15 @@
       aria-label="設定"
       onclick={() => (panel = panel === 'settings' ? 'none' : 'settings')}><Icon name="more" /></button>
   </header>
+
+  {#if hideMode}
+    <div class="hidebar">
+      <span>文をタップで表示</span>
+      <button class="chip" class:on={autoReveal} onclick={toggleAutoReveal}>聞いた文を表示</button>
+      <button class="chip" onclick={() => view?.revealAll(true)}>全部表示</button>
+      <button class="chip" onclick={() => view?.revealAll(false)}>全部隠す</button>
+    </div>
+  {/if}
 
   <div class="scroller" bind:this={scroller}>
     {#if loadError}
@@ -804,6 +842,33 @@
     text-overflow: ellipsis;
   }
   .icon-btn.active {
+    color: var(--accent);
+  }
+  .hidebar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-bottom: 1px solid var(--line);
+    font-size: 11px;
+    color: var(--text-dim);
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .hidebar span {
+    margin-right: auto;
+  }
+  .hidebar .chip {
+    flex: none;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 14px;
+    background: var(--surface-2);
+    font-size: 12px;
+    color: var(--text);
+  }
+  .hidebar .chip.on {
+    background: var(--accent-soft);
     color: var(--accent);
   }
   .ja-btn {

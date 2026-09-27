@@ -5,6 +5,7 @@
   import { db, type Recording } from '../lib/db/db';
   import { dialog } from '../lib/dialog.svelte';
   import { Practice, type PracticeTarget } from '../lib/playback/practice.svelte';
+  import { saveBlob } from '../lib/share';
 
   let {
     practice,
@@ -66,6 +67,15 @@
     await db.recordings.delete(r.id);
   }
 
+  /** 録音をファイルとして保存・送信（iPhone では共有シート） */
+  async function exportRec(r: Recording) {
+    const d = new Date(r.createdAt);
+    const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+    const words = text.replace(/[^A-Za-z0-9' ]/g, '').trim().split(/\s+/).slice(0, 6).join('-');
+    const ext = r.mimeType.includes('webm') ? 'webm' : 'm4a';
+    await saveBlob(`listenloop-${stamp}-${words || 'recording'}.${ext}`, r.blob);
+  }
+
   function label(r: Recording): string {
     const d = new Date(r.createdAt);
     const time = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
@@ -120,6 +130,7 @@
             <button class="pill small" onclick={() => mine(r)}><Icon name="play" />自分</button>
             <button class="pill small primary" onclick={() => compare(r)}>お手本→自分</button>
           {/if}
+          <button class="icon-btn del" aria-label="録音を保存・送る" onclick={() => exportRec(r)}><Icon name="share" /></button>
           <button class="icon-btn del" aria-label="録音を削除" onclick={() => remove(r)}><Icon name="trash" /></button>
         </li>
       {/each}

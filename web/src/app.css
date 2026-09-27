@@ -275,6 +275,29 @@ input[type='range'] {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
+/* テキストを隠すモード: まだ表示していない文は、単語の長さの灰色の帯（伏せ字）にする */
+.transcript.hide .s:not(.shown) .w {
+  color: transparent !important;
+  background: #2b2d33 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  border-radius: 4px !important;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.transcript.hide .s:not(.shown) .sp {
+  background: transparent !important;
+  background-image: none !important;
+}
+/* 伏せ字でも、今どこを再生しているかは分かるようにする */
+.transcript.hide .s:not(.shown) .w.cur {
+  background: var(--accent) !important;
+}
+.transcript.hide .s:not(.shown) .w::before,
+.transcript.hide .s:not(.shown) .w::after {
+  color: #000;
+}
+
 /* 長押しで選択している単語（iOS の選択表示が出ないときの代わり） */
 .transcript .w.sel {
   background: rgba(120, 170, 255, 0.35);
