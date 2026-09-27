@@ -181,6 +181,11 @@ input[type='range'] {
 .transcript.show-ja .ja {
   display: block;
 }
+/* 今再生している段落の訳 */
+.transcript .ja.cur-ja {
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
 
 .transcript .s {
   color: var(--text-dim);

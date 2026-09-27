@@ -72,7 +72,7 @@
 
   async function remove(ep: Episode) {
     const ok = await dialog.confirm(`「${ep.title}」を削除しますか？`, {
-      message: '音声・スクリプト・この回のマークや範囲もすべて消えます。',
+      message: '音声・スクリプト・この回の記録や範囲もすべて消えます。',
       okLabel: '削除',
       danger: true,
     });
@@ -85,7 +85,7 @@
 <div class="page">
   <header>
     <h1>ListenLoop</h1>
-    <button class="pill" onclick={() => router.go('#/marks')}><Icon name="bookmark" />マーク{$markCount ? ` ${$markCount}` : ''}</button>
+    <button class="pill" onclick={() => router.go('#/marks')}><Icon name="bookmark" />記録{$markCount ? ` ${$markCount}` : ''}</button>
     <button class="pill primary" onclick={() => fileInput.click()} disabled={busy}>
       <Icon name="import" />{busy ? '取り込み中…' : '取り込む'}
     </button>
@@ -141,7 +141,7 @@
 
   <section class="backup">
     <h2>バックアップ</h2>
-    <p>範囲・マーク・メモを 1 つのファイルに書き出します。iPhone の容量が足りなくなると保存データが消されることがあるので、ときどき書き出しておくと安心です（音声とスクリプトは含みません）。</p>
+    <p>範囲・記録・メモを 1 つのファイルに書き出します。iPhone の容量が足りなくなると保存データが消されることがあるので、ときどき書き出しておくと安心です（音声とスクリプトは含みません）。</p>
     <div class="row">
       <button class="pill" onclick={backup}>書き出す</button>
       <button class="pill" onclick={() => backupInput.click()}>読み込む</button>

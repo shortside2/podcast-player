@@ -93,7 +93,7 @@
   async function trash() {
     await saveNote();
     await db.marks.update(m.id, { deletedAt: Date.now() });
-    onMessage('ゴミ箱に入れました（マーク一覧の「ゴミ箱」から戻せます）');
+    onMessage('ゴミ箱に入れました（記録一覧の「ゴミ箱」から戻せます）');
     onClose();
   }
 

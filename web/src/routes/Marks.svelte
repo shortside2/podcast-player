@@ -38,8 +38,8 @@
   const episodes = liveQuery(() => db.episodes.toArray());
 
   const saved = readView();
-  let showMastered = $state(false);
-  let showTrash = $state(false);
+  /** 表示する一覧: 記録（まだ覚えていないもの）/ 習得済み / ゴミ箱 */
+  let tab = $state<'list' | 'mastered' | 'trash'>('list');
   let selecting = $state(false);
   let selected = $state<Set<string>>(new Set());
   let editing = $state<string | null>(null);
@@ -109,7 +109,7 @@
     loadedEpisode = epId;
     disconnectMedia?.();
     disconnectMedia = connectMediaSession(engine, {
-      title: `${ep.title}（マーク）`,
+      title: `${ep.title}（記録）`,
       artworkUrl: new URL('icon-512.png', document.baseURI).href,
       onPrevSentence: () => markPlayer.step(-1),
       onNextSentence: () => markPlayer.step(1),
@@ -151,7 +151,7 @@
   }
 
   async function copy(list: Mark[]) {
-    if (!list.length) return showToast('コピーするマークがありません');
+    if (!list.length) return showToast('コピーする記録がありません');
     try {
       await navigator.clipboard.writeText(marksToText(list));
       showToast(`${list.length} 件をコピーしました`);
@@ -187,7 +187,7 @@
     const list = ($marks ?? []).filter(
       (m) =>
         isLive(m) &&
-        (showMastered || !m.mastered) &&
+        (tab === 'mastered' ? m.mastered : !m.mastered) &&
         (tagFilter === 'all' || (tagFilter === 'none' ? !m.tags?.length : m.tags?.includes(tagFilter))),
     );
     const byEp = new Map<string, Mark[]>();
@@ -226,6 +226,18 @@
   });
   const allVisible = $derived(groups.flatMap((g) => g.marks));
   const masteredCount = $derived(($marks ?? []).filter((m) => isLive(m) && m.mastered).length);
+  const listCount = $derived(($marks ?? []).filter((m) => isLive(m) && !m.mastered).length);
+
+  /** 右の ▶: その箇所を再生。再生中の箇所なら同じボタンで一時停止・再開 */
+  function playOrPause(m: Mark) {
+    if (markPlayer.current?.id === m.id) markPlayer.toggle();
+    else void play([m], 0);
+  }
+
+  async function unmaster(m: Mark) {
+    await db.marks.update(m.id, { mastered: false });
+    showToast('記録の一覧に戻しました');
+  }
   const trashed = $derived(($marks ?? []).filter((m) => !isLive(m)).sort((a, b) => (b.deletedAt ?? 0) - (a.deletedAt ?? 0)));
 
   function showToast(text: string) {
@@ -274,16 +286,20 @@
 <div class="page">
   <header>
     <button class="icon-btn" aria-label="戻る" onclick={() => router.back(episodeId ? `#/episode/${episodeId}` : '#/')}><Icon name="chevron-left" /></button>
-    <h1>{showTrash ? 'ゴミ箱' : episodeId ? (epMap.get(episodeId)?.title ?? 'マーク') : 'すべてのマーク'}</h1>
-    {#if showTrash}
-      <button class="pill" onclick={() => (showTrash = false)}>一覧に戻る</button>
-    {:else}
+    <h1>{episodeId ? (epMap.get(episodeId)?.title ?? '記録') : 'すべての記録'}</h1>
+    {#if tab !== 'trash'}
       <button class="pill" onclick={() => copy(allVisible)}>コピー</button>
       <button class="pill" class:on={selecting} onclick={() => { selecting = !selecting; selected = new Set(); }}>{selecting ? 'やめる' : '選択'}</button>
     {/if}
   </header>
 
-  {#if showTrash}
+  <div class="tabs">
+    <button class:on={tab === 'list'} onclick={() => { tab = 'list'; editing = null; }}>記録 {listCount}</button>
+    <button class:on={tab === 'mastered'} onclick={() => { tab = 'mastered'; editing = null; }}>習得済み {masteredCount}</button>
+    <button class:on={tab === 'trash'} onclick={() => { tab = 'trash'; editing = null; }}><Icon name="trash" />ゴミ箱 {trashed.length}</button>
+  </div>
+
+  {#if tab === 'trash'}
     {#if trashed.length}
       <div class="trash-head">
         <span>{trashed.length} 件</span>
@@ -308,13 +324,11 @@
       <p class="empty">ゴミ箱は空です。</p>
     {/if}
   {:else}
-    <div class="bar">
-      {#if episodeId}
-        <button class="link" onclick={() => router.go('#/marks')}>すべてのエピソード</button>
-      {/if}
-      <label class="toggle"><input type="checkbox" bind:checked={showMastered} />習得済み{masteredCount ? `（${masteredCount}）` : ''}</label>
-      <button class="link dim" onclick={() => (showTrash = true)}><Icon name="trash" />ゴミ箱{trashed.length ? `（${trashed.length}）` : ''}</button>
-    </div>
+    {#if episodeId}
+      <div class="bar">
+        <button class="link" onclick={() => router.go('#/marks')}>すべてのエピソードの記録を見る</button>
+      </div>
+    {/if}
 
     <div class="views">
       <div class="seg">
@@ -350,8 +364,11 @@
 
     {#if $marks && allVisible.length === 0}
       <p class="empty">
-        表示するマークがありません。<br />
-        プレイヤーで文を長押しして［マーク］を押すと追加できます。
+        {#if tab === 'mastered'}
+          習得済みの記録はありません。<br />記録を開いて「習得済みにする」を押すと、ここに移ります。
+        {:else}
+          表示する記録がありません。<br />プレイヤーで文を長押しして［記録］を押すと追加できます。
+        {/if}
       </p>
     {/if}
 
@@ -384,7 +401,13 @@
                     </span>
                   </button>
                   {#if !selecting}
-                    <button class="icon-btn go" aria-label="ここだけ再生" onclick={() => play([m], 0)}>
+                    {#if tab === 'mastered'}
+                      <button class="pill small" onclick={() => unmaster(m)}>戻す</button>
+                    {/if}
+                    <button
+                      class="icon-btn go"
+                      aria-label={markPlayer.current?.id === m.id && engine.playing ? '一時停止' : 'ここを再生'}
+                      onclick={() => playOrPause(m)}>
                       <Icon name={markPlayer.current?.id === m.id && engine.playing ? 'pause' : 'play'} />
                     </button>
                   {/if}
@@ -409,15 +432,15 @@
           <span class="mini-body">{cur?.text}</span>
         </div>
         <div class="mini-ctl">
-          <button class="icon-btn" aria-label="前の箇所" onclick={() => markPlayer.step(-1)} disabled={markPlayer.index === 0}><Icon name="prevSentence" /></button>
-          <button class="icon-btn" aria-label={engine.playing ? '一時停止' : '再生'} onclick={() => engine.toggle()}><Icon name={engine.playing ? 'pause' : 'play'} /></button>
+          <button class="icon-btn" aria-label="頭から（頭付近なら前の箇所）" onclick={() => markPlayer.restartOrPrev()}><Icon name="prevSentence" /></button>
+          <button class="icon-btn" aria-label={engine.playing ? '一時停止' : '再生'} onclick={() => markPlayer.toggle()}><Icon name={engine.playing ? 'pause' : 'play'} /></button>
           <button class="icon-btn" aria-label="次の箇所" onclick={() => markPlayer.step(1)} disabled={markPlayer.index >= markPlayer.queue.length - 1}><Icon name="nextSentence" /></button>
           <button class="pill" onclick={() => cur && openInPlayer(cur)}>全文で開く</button>
           <button class="icon-btn" aria-label="再生をやめる" onclick={() => { markPlayer.stop(); engine.pause(); }}><Icon name="close" /></button>
         </div>
       </div>
     {/if}
-    {#if selecting && !showTrash}
+    {#if selecting && tab !== 'trash'}
       <div class="selbar">
         <span>{selected.size} 件選択</span>
         <button class="pill" onclick={() => (selected = new Set(allVisible.map((m) => m.id)))}>すべて</button>
@@ -465,11 +488,6 @@
   .link {
     color: var(--accent);
     font-size: 13px;
-  }
-  .toggle {
-    display: flex;
-    align-items: center;
-    gap: 6px;
   }
   .settings {
     background: var(--surface);
@@ -692,13 +710,30 @@
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
   }
 
-  .link.dim {
-    color: var(--text-dim);
+  .tabs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    background: var(--surface);
+    border-radius: 10px;
+    padding: 2px;
+    margin-bottom: 10px;
+  }
+  .tabs button {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     gap: 4px;
+    padding: 8px 4px;
+    border-radius: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
   }
-  .link.dim :global(svg) {
+  .tabs button.on {
+    background: var(--surface-2);
+    color: var(--text);
+    font-weight: 600;
+  }
+  .tabs :global(svg) {
     width: 14px;
     height: 14px;
   }

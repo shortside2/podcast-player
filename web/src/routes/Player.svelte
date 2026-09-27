@@ -48,7 +48,7 @@
   let autoMarkAB = $state(readFlag(AUTO_MARK_KEY));
   /** マーク箇所の連続再生 */
   const markPlayer = new MarkPlayer(engine, loop, () => transcript, () => timingOffset, () =>
-    showToast('マーク箇所の連続再生が終わりました'),
+    showToast('記録の連続再生が終わりました'),
   );
   // svelte-ignore state_referenced_locally
   const episodeMarks = liveQuery(() => db.marks.where('episodeId').equals(id).toArray());
@@ -470,7 +470,7 @@
       editingMark = mark;
       panel = 'mark';
     }
-    showToast(created ? 'マークしました' : 'すでにマークしてあります');
+    showToast(created ? '記録しました' : 'すでに記録してあります');
   }
 
   /** 今の AB リピートの範囲をマークする（リピートは続けたまま） */
@@ -539,7 +539,7 @@
   <header>
     <button class="icon-btn" aria-label="一覧に戻る" onclick={() => router.go('#/')}><Icon name="chevron-left" /></button>
     <h1>{episode?.title ?? ''}</h1>
-    <button class="icon-btn" aria-label="マーク一覧" onclick={() => router.go(`#/marks/${id}`)}><Icon name="bookmark" /></button>
+    <button class="icon-btn" aria-label="記録一覧" onclick={() => router.go(`#/marks/${id}`)}><Icon name="bookmark" /></button>
     {#if hasJa}
       <button class="icon-btn ja-btn" class:active={showJa} aria-label="日本語訳の表示" onclick={toggleJa}>訳</button>
     {/if}
@@ -578,7 +578,7 @@
           {/if}
           {#if selWords}
             <div class="selrow">
-              <button onclick={() => { const w = selWords!; clearSelection(); void markWords(w); }}><Icon name="marker" />マーク</button>
+              <button onclick={() => { const w = selWords!; clearSelection(); void markWords(w); }}><Icon name="bookmark" />記録</button>
             </div>
           {/if}
         </div>
@@ -638,7 +638,7 @@
             engine.seek(t + timingOffset);
             if (!engine.playing) void engine.play();
           }}
-          onSave={() => saveRange(panel as RangeKind)} />
+          onSave={() => (panel === 'ab' ? markAB() : saveRange('section'))} />
       </div>
     {:else if panel === 'mark' && editingMark}
       <div class="panel">
@@ -650,8 +650,8 @@
       <div class="panel">
         <div class="setting">
           <div>
-            <div class="label">AB リピート開始時に自動でマーク</div>
-            <div class="hint">繰り返した箇所が、そのままマーク一覧にたまります</div>
+            <div class="label">AB リピート開始時に自動で記録</div>
+            <div class="hint">繰り返した箇所が、そのまま記録一覧にたまります</div>
           </div>
           <button class="pill" class:on={autoMarkAB} onclick={() => setAutoMark(!autoMarkAB)}>{autoMarkAB ? 'オン' : 'オフ'}</button>
         </div>
@@ -671,9 +671,9 @@
 
     {#if markPlayer.active}
       <div class="rangebar playlist">
-        <button class="icon-btn rb-x" aria-label="前の箇所" onclick={() => markPlayer.step(-1)} disabled={markPlayer.index === 0}><Icon name="prevSentence" /></button>
+        <button class="icon-btn rb-x" aria-label="頭から（頭付近なら前の箇所）" onclick={() => markPlayer.restartOrPrev()}><Icon name="prevSentence" /></button>
         <div class="rb-main static">
-          <span class="rb-tag">マーク</span>
+          <span class="rb-tag">記録</span>
           <span class="rb-time">{markPlayer.index + 1}/{markPlayer.queue.length}</span>
           <span class="rb-count">{markPlayer.waiting || loop.waiting ? '間隔…' : `${(loop.ab?.played ?? 0) + 1}/${markPlayer.settings.repeat}回`}</span>
           <span class="rb-name">{markPlayer.current?.text}</span>
@@ -695,7 +695,7 @@
           <span class="rb-edit">{panel === r.kind ? '閉じる' : '調整'}</span>
         </button>
         {#if r.kind === 'ab'}
-          <button class="icon-btn rb-x" aria-label="この範囲をマーク" onclick={markAB}><Icon name="marker" /></button>
+          <button class="icon-btn rb-mark" aria-label="この範囲を記録" onclick={markAB}><Icon name="bookmark" /></button>
         {/if}
         <button class="icon-btn rb-x" aria-label={r.kind === 'ab' ? 'ABリピートを解除' : '区間を解除'} onclick={() => loop.release(r.kind)}><Icon name="close" /></button>
       </div>
@@ -931,6 +931,18 @@
   .rb-x {
     width: 36px;
     height: 36px;
+  }
+  /* AB の範囲を記録するボタン（× と押し間違えないよう大きめで離す） */
+  .rb-mark {
+    width: 44px;
+    height: 40px;
+    margin-right: 10px;
+    border-radius: 10px;
+    color: #8ab8ff;
+  }
+  .rb-mark :global(svg) {
+    width: 22px;
+    height: 22px;
   }
   .rb-x :global(svg) {
     width: 18px;

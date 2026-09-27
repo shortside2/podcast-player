@@ -130,7 +130,12 @@
     </div>
 
     <div class="actions">
-      <button class="pill" onclick={onSave}><Icon name="bookmark" />{range.savedId ? '上書き保存' : '保存'}</button>
+      {#if kind === 'ab'}
+        <!-- AB リピートの範囲は、名前を付けて保存するのではなく「記録」に入れる -->
+        <button class="pill" onclick={onSave}><Icon name="bookmark" />記録する</button>
+      {:else}
+        <button class="pill" onclick={onSave}><Icon name="bookmark" />{range.savedId ? '上書き保存' : '保存'}</button>
+      {/if}
       <button class="pill" onclick={() => loop.release(kind)}><Icon name="close" />解除</button>
     </div>
   </div>

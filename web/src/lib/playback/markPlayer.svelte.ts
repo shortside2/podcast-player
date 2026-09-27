@@ -51,6 +51,32 @@ export class MarkPlayer {
     this.playCurrent(this.engine.playing || this.waiting);
   }
 
+  /**
+   * ⏮ ボタン: 今の箇所の途中（頭から 1 秒以上）なら頭から再生し直す。頭付近なら前の箇所へ。
+   */
+  restartOrPrev(): void {
+    const m = this.current;
+    if (!m) return;
+    const t = this.engine.currentTime - this.getOffset();
+    const { start } = this.paddedRange(m);
+    if (t - start > 1 || this.index === 0) {
+      this.clearTimer();
+      this.playCurrent(true);
+    } else {
+      this.step(-1);
+    }
+  }
+
+  /** 今の箇所の再生・一時停止を切り替える（同じ ▶ ボタンで止められるように） */
+  toggle(): void {
+    if (this.waiting) {
+      this.clearTimer();
+      this.playCurrent(true);
+      return;
+    }
+    this.engine.toggle();
+  }
+
   stop(): void {
     this.clearTimer();
     if (this.active) this.loop.release('ab');

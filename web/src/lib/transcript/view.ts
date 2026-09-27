@@ -31,6 +31,9 @@ const LEAD_SEC = 0.08;
 export class TranscriptView {
   private wordEls: HTMLElement[] = [];
   private spaceEls: HTMLElement[] = [];
+  /** 文 → その文を含む段落の日本語訳の要素（訳がなければ undefined） */
+  private jaOfSentence: (HTMLElement | undefined)[] = [];
+  private curJa: HTMLElement | undefined;
   private sentenceEls: HTMLElement[] = [];
   private curWord = -2;
   private curSentence = -2;
@@ -81,6 +84,13 @@ export class TranscriptView {
       if (this.curSentence >= 0) this.sentenceEls[this.curSentence]?.classList.remove('cur-s');
       if (s >= 0) this.sentenceEls[s]?.classList.add('cur-s');
       this.curSentence = s;
+      // 今の段落の日本語訳を強調する
+      const ja = s >= 0 ? this.jaOfSentence[s] : undefined;
+      if (ja !== this.curJa) {
+        this.curJa?.classList.remove('cur-ja');
+        ja?.classList.add('cur-ja');
+        this.curJa = ja;
+      }
     }
 
     if (needScroll) this.follow(first);
@@ -169,7 +179,16 @@ export class TranscriptView {
     return n ? Number(n.dataset.w) : null;
   }
 
+  /** ノードが単語の中（単語の文字そのもの）なら、その単語番号 */
+  private wordContaining(n: Node): number | null {
+    const el = n instanceof HTMLElement ? n : n.parentElement;
+    const w = el?.closest<HTMLElement>('[data-w]');
+    return w && this.content.contains(w) ? Number(w.dataset.w) : null;
+  }
+
   private wordAtOrAfter(n: Node): number | null {
+    const inside = this.wordContaining(n);
+    if (inside != null) return inside;
     const el = n instanceof HTMLElement ? n : null;
     if (el?.dataset.w !== undefined) return Number(el.dataset.w);
     const inner = el?.querySelector<HTMLElement>('[data-w]');
@@ -177,6 +196,8 @@ export class TranscriptView {
   }
 
   private wordAtOrBefore(n: Node): number | null {
+    const inside = this.wordContaining(n);
+    if (inside != null) return inside;
     const el = n instanceof HTMLElement ? n : null;
     if (el?.dataset.w !== undefined) return Number(el.dataset.w);
     const all = el?.querySelectorAll<HTMLElement>('[data-w]');
@@ -272,6 +293,7 @@ export class TranscriptView {
     const frag = document.createDocumentFragment();
     this.wordEls = new Array(words.length);
     this.spaceEls = new Array(words.length);
+    this.jaOfSentence = new Array(sentences.length);
     this.sentenceEls = new Array(sentences.length);
 
     // 話題の見出しを入れる位置（単語番号 → 話題番号）
@@ -298,6 +320,7 @@ export class TranscriptView {
       inParagraph = 0;
     };
 
+    let sentencesInParagraph: number[] = [];
     const closeParagraph = () => {
       const ja = paragraphs?.[pi]?.ja;
       if (p && ja) {
@@ -306,7 +329,9 @@ export class TranscriptView {
         el.lang = 'ja';
         el.textContent = ja;
         p.append(el);
+        for (const si of sentencesInParagraph) this.jaOfSentence[si] = el;
       }
+      sentencesInParagraph = [];
     };
 
     sentences.forEach((sent, si) => {
@@ -362,6 +387,7 @@ export class TranscriptView {
         s.append(w, sp);
       }
       this.sentenceEls[si] = s;
+      sentencesInParagraph.push(si);
       p!.append(s);
     });
     closeParagraph();
