@@ -1,0 +1,2 @@
+# 任意: 単語境界の補正（--align whisperx）と話者分離（--diarize）を使うときだけ
+whisperx

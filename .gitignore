@@ -1,0 +1,12 @@
+.DS_Store
+# 学習データはリポジトリに入れない（公開されてしまうため）
+*.mp3
+*.m4a
+*.wav
+*.aiff
+mac-tool/.venv/
+mac-tool/**/__pycache__/
+mac-tool/.make_transcript_tmp/
+web/node_modules/
+web/dist/
+web/test-data/

@@ -1,0 +1,152 @@
+:root {
+  /* 有機EL向けの真っ黒な背景を基本にしたダークテーマ */
+  --bg: #000;
+  --surface: #111214;
+  --surface-2: #1c1d21;
+  --line: #2a2c31;
+  --text: #e8e8ea;
+  --text-dim: #9a9ba1;
+  --text-faint: #62636a;
+  --accent: #f5b942;
+  --accent-ink: #1a1200;
+  --accent-soft: rgba(245, 185, 66, 0.14);
+  --danger: #ff6b5e;
+  --radius: 12px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --font: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Segoe UI', sans-serif;
+  --reading: 'Charter', 'Iowan Old Style', Georgia, serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#app {
+  height: 100%;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+
+.icon-btn:active {
+  background: var(--surface-2);
+}
+
+.icon-btn svg {
+  width: 24px;
+  height: 24px;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  background: var(--surface-2);
+  font-size: 14px;
+}
+
+.pill.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.pill.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+input[type='range'] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+/* ---- スクリプト表示 ---- */
+.transcript {
+  font-family: var(--reading);
+  font-size: 20px;
+  line-height: 1.65;
+  padding: 16px 20px 45vh;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.transcript .p {
+  margin: 0 0 1.1em;
+  /* 画面外の段落の描画を省いて、1万単語でも軽くする */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 7em;
+}
+
+.transcript .spk {
+  display: block;
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text-faint);
+  margin-bottom: 2px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.transcript .s {
+  color: var(--text-dim);
+  transition: color 0.2s;
+}
+
+.transcript .s.cur-s {
+  color: var(--text);
+}
+
+.transcript .w {
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+/* 背景色だけを変える（余白を足すと行が動いて重くなるため） */
+.transcript .w.cur {
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+::selection {
+  background: rgba(120, 170, 255, 0.45);
+}
