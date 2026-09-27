@@ -6,11 +6,16 @@ import { VitePWA } from 'vite-plugin-pwa';
 // （画面遷移は #/... のハッシュ方式なので、サーバー側の設定は不要）
 export default defineConfig({
   base: './',
+  define: {
+    // 画面に表示する版（いつビルドしたか）
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   plugins: [
     svelte(),
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // 登録は src/lib/pwa.ts で行う（更新の確認を自分で制御するため）
+      injectRegister: false,
       includeAssets: ['apple-touch-icon.png', 'favicon.svg'],
       manifest: {
         name: 'ListenLoop',
@@ -34,6 +39,9 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,webmanifest,mp4}'],
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
+        // 新しい版を取得したら、古い画面が閉じられるのを待たずにすぐ切り替える
+        skipWaiting: true,
+        clientsClaim: true,
       },
     }),
   ],

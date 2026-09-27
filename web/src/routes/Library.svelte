@@ -6,6 +6,7 @@
   import { formatBytes, formatDate, formatTime } from '../lib/format';
   import { importFiles } from '../lib/import/importEpisodes';
   import { isIOS, isStandalone } from '../lib/platform';
+  import { buildLabel } from '../lib/pwa';
   import { router } from '../lib/router.svelte';
 
   const episodes = liveQuery(() => db.episodes.orderBy('createdAt').reverse().toArray());
@@ -120,6 +121,7 @@
       · {storage.persisted ? '永続化 ✓' : '永続化 未許可'}
     </footer>
   {/if}
+  <footer class="ver">アプリの版 {buildLabel}</footer>
 </div>
 
 <style>
@@ -219,6 +221,9 @@
   }
   .del {
     color: var(--text-faint);
+  }
+  footer.ver {
+    margin-top: 6px;
   }
   footer {
     margin-top: 24px;
