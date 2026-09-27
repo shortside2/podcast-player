@@ -31,7 +31,7 @@ export default defineConfig({
       },
       workbox: {
         // アプリ本体だけをキャッシュする（学習データは IndexedDB にあり、ここには入らない）
-        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,webmanifest,mp4}'],
         navigateFallback: 'index.html',
         cleanupOutdatedCaches: true,
       },

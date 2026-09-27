@@ -48,6 +48,26 @@ Mac 側ツール `make_transcript.py` が出力し、Web アプリが読み込�
 | `sentences[].firstWord/lastWord` | その文に含まれる単語の番号（`words` の添字、両端を含む） |
 | `revision.source` | `asr`（自動認識のまま）/ `edited`（手で修正済み） |
 
+## 段落と話題（任意。add_bilingual.py が追加する）
+
+```json
+"paragraphs": [
+  { "start": 79.2, "end": 209.6, "firstWord": 180, "lastWord": 612, "speaker": "robert", "ja": "こんにちは…", "sourceId": 7 }
+],
+"topics": [
+  { "titleEn": "Introduction", "titleJa": "イントロダクション", "start": 79.2, "end": 215.0,
+    "firstWord": 180, "lastWord": 640, "firstParagraph": 6, "lastParagraph": 8 }
+],
+"annotations": { "source": "episode_bilingual.json", "addedAt": "2026-09-27T05:50:00+00:00" }
+```
+
+| 項目 | 説明 |
+|---|---|
+| `paragraphs` | 表示上の段落（話者のひとまとまりの発言）。`ja` は日本語訳。段落があるときは、文（`sentences`）は段落の境目をまたがない |
+| `topics` | 話題。アプリでは見出しとして表示され、タップするとその範囲が区間になる |
+
+どちらも無くても読み込める（その場合、段落は無音の長さなどから自動で作る）。項目の追加なので `schemaVersion` は 1 のまま。
+
 ## 将来の拡張（DaVinci Resolve で修正したテキストの取り込み）
 
 - 修正版は `revision.source = "edited"`、`revision.editedAt` に日時を入れる

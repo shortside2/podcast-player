@@ -16,6 +16,28 @@ export interface TranscriptSentence {
   speaker?: string | null;
 }
 
+/** 段落（話者のひとまとまりの発言）。日本語訳を持てる */
+export interface TranscriptParagraph {
+  start: number;
+  end: number;
+  firstWord: number;
+  lastWord: number;
+  speaker?: string | null;
+  ja?: string | null;
+}
+
+/** 話題。アプリでは見出しになり、タップするとその範囲が区間になる */
+export interface TranscriptTopic {
+  titleEn?: string | null;
+  titleJa?: string | null;
+  start: number;
+  end: number;
+  firstWord: number;
+  lastWord: number;
+  firstParagraph?: number;
+  lastParagraph?: number;
+}
+
 export interface TranscriptDoc {
   schemaVersion: number;
   title?: string;
@@ -31,6 +53,8 @@ export interface TranscriptDoc {
   speakers?: { id: string; name: string | null }[];
   words: TranscriptWord[];
   sentences: TranscriptSentence[];
+  paragraphs?: TranscriptParagraph[];
+  topics?: TranscriptTopic[];
   revision?: { source: string; editedAt: string | null };
 }
 

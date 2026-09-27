@@ -43,7 +43,7 @@ export class LoopController {
   constructor(
     private readonly engine: PlaybackEngine,
     private readonly getOffset: () => number,
-    private readonly onReleased: (r: ActiveRange, reason: 'done' | 'left') => void,
+    private readonly onReleased: (r: ActiveRange) => void,
   ) {
     this.disposers.push(engine.onFrame((t) => this.check(t)));
     const a = engine.audio;
@@ -112,22 +112,19 @@ export class LoopController {
   }
 
   /**
-   * 移動先の時刻（スクリプトの時刻）を、範囲に合わせて決める。
-   * - 'clamp' : 一番内側の範囲の中に収める（±5 秒・前後の文）
-   * - 'escape': 範囲の外なら、その範囲を解除する（単語タップ・シークバー）
+   * 移動先の時刻（スクリプトの時刻）を、一番内側の範囲の中に収める。
+   * 範囲を設定している間は、範囲の外へは移動しない（解除は × ボタンで行う）
    */
-  resolveSeek(t: number, mode: 'clamp' | 'escape'): number {
+  resolveSeek(t: number): number {
     const r = this.inner;
     if (!r) return t;
-    if (mode === 'clamp') return Math.min(Math.max(t, r.start), r.end - 0.1);
-    const kept = this.stack.filter((x) => t >= x.start - 0.01 && t < x.end);
-    if (kept.length !== this.stack.length) {
-      this.cancelGap(true);
-      const removed = this.stack.filter((x) => !kept.includes(x));
-      this.stack = kept;
-      removed.forEach((x) => this.onReleased(x, 'left'));
-    }
-    return t;
+    return Math.min(Math.max(t, r.start), r.end - 0.1);
+  }
+
+  /** 時刻 t が一番内側の範囲の中にあるか */
+  contains(t: number): boolean {
+    const r = this.inner;
+    return !r || (t >= r.start - 0.01 && t < r.end);
   }
 
   /** ユーザーが位置を動かしたら、繰り返しの間の無音待ちを取りやめる */
@@ -156,7 +153,7 @@ export class LoopController {
     if (r.repeatCount > 0 && played >= r.repeatCount) {
       // 指定回数を終えた → 解除して外側の範囲に戻る（そのまま続きを再生）
       this.stack = this.stack.slice(0, -1);
-      this.onReleased({ ...r, played }, 'done');
+      this.onReleased({ ...r, played });
       this.handling = false;
       // 外側の範囲の終わりも同時に来ていないか確認
       this.check(this.engine.audio.currentTime);

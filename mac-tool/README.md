@@ -94,3 +94,30 @@ cd ~/"Documents/Claude Code/podcast-player/mac-tool"
 3. 話者が変わる（話者分離をしたとき）
 4. 単語数が `--max-words` を超えた（後半にあるカンマで分割）
 5. `--soft-max-words` を超える文は、カンマ・無音・and / but / so などの前のうち、真ん中に近い自然な位置で分割
+
+## 話題・段落・日本語訳を取り込む（add_bilingual.py）
+
+チャットで作った「話題（sections）・発言ブロック（segments）・日本語訳」の JSON を、スクリプト JSON に取り込みます。
+
+```bash
+cd ~/"Documents/Claude Code/podcast-player/mac-tool"
+.venv/bin/python add_bilingual.py "…/episode.json" "…/episode_bilingual.json"
+```
+
+- 発言ブロックが段落になり、話者名と日本語訳が付きます（アプリの「訳」ボタンで表示）
+- 話題が見出しになり、アプリで見出しをタップするとその話題が区間になります
+- 元のスクリプトは `episode.json.bak` に 1 度だけ保存してから上書きします
+- 時刻は DaVinci のタイムコード（`01:00:00;00` を 0 秒）で対応付け、境目は英文の最初と最後の数語でそろえます
+
+更新した `.json` は、アプリの「取り込む」で **.json だけ**を選べば、取り込み済みのエピソードに反映されます（マーク・範囲はそのまま）。
+
+bilingual JSON の形（必要な項目）:
+
+```json
+{
+  "title": "Talk Art — Lewis Hammond",
+  "speakers": { "robert": "Robert Diament(ホスト)", "lewis": "Lewis Hammond(ゲスト)" },
+  "sections": [ { "id": 1, "title_en": "Introduction", "title_ja": "イントロダクション", "segment_ids": [7, 9] } ],
+  "segments": [ { "id": 7, "start": "01:01:19;12", "end": "01:03:29;27", "speaker_id": "robert", "en": "…", "ja": "…" } ]
+}
+```

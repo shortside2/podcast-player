@@ -20,6 +20,7 @@
   const SAVE_INTERVAL_MS = 5000;
   const NEW_SECTION_SEC = 120;
   const AB_DEFAULTS_KEY = 'listenloop.abDefaults';
+  const SHOW_JA_KEY = 'listenloop.showJa';
 
   type Panel = 'none' | 'speed' | 'settings' | 'ranges' | 'ab' | 'section';
 
@@ -37,6 +38,12 @@
   /** 長押しで選択している単語の範囲 */
   let selWords = $state<[number, number] | null>(null);
   let toast = $state<string | null>(null);
+  /** 調整パネルを開いているとき、テキストのタップで動かす点 */
+  let editTarget = $state<'A' | 'B'>('A');
+  /** 区間の始まりだけ決めて、終わりを待っている（単語番号） */
+  let pendingSecStart = $state<number | null>(null);
+  let showJa = $state(readShowJa());
+  const hasJa = $derived(!!transcript?.doc.paragraphs?.some((p) => p.ja));
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   let scroller: HTMLElement;
@@ -63,16 +70,26 @@
     transcript = tx;
     view = new TranscriptView(scroller, content, tx, {
       onWordTap: (i) => {
+        // 調整パネルを開いているときは、タップした位置に A / B を置く（再生位置は動かさない）
+        if (panel === 'ab' || panel === 'section') return placePoint(i);
+        const t = tx.words[i].start - PREROLL;
+        if (!loop.contains(t)) {
+          showToast(`${loop.inner?.kind === 'ab' ? 'AB リピート' : '区間'}の外です。× で解除すると移動できます`);
+          return;
+        }
         // 先に「画面を動かさない」と伝えてからシークする
         view?.resumeFollow('none');
-        seekTo(tx.words[i].start - PREROLL, 'escape', false);
+        seekTo(t, false);
         if (!engine.playing) void engine.play();
       },
       onFollowChange: (f) => (following = f),
+      onTopicTap: (ti) => selectTopic(ti),
     });
     view.setTimingOffset(timingOffset);
-    disposers.push(engine.onFrame((t) => view?.update(t)));
+    view.setShowJa(showJa);
+    // 先に音声を読み込んで、最初のハイライトが「続きの位置」から始まるようにする
     engine.load(audio.blob, ep.lastPosition, ep.rate);
+    disposers.push(engine.onFrame((t) => view?.update(t)));
     disposers.push(
       connectMediaSession(engine, {
         title: ep.title,
@@ -80,7 +97,7 @@
         onPrevSentence: prevSentence,
         onNextSentence: nextSentence,
         onSkip: skip,
-        onSeekTo: (t) => seekTo(t - timingOffset, 'escape'),
+        onSeekTo: (t) => seekTo(t - timingOffset),
       }),
     );
 
@@ -169,29 +186,26 @@
     return engine.currentTime - timingOffset;
   }
 
-  /**
-   * スクリプトの時刻 t へ移動する。
-   * mode: 'clamp' = AB・区間の中に収める / 'escape' = 範囲の外なら範囲を解除する
-   */
-  function seekTo(t: number, mode: 'clamp' | 'escape', follow = true) {
+  /** スクリプトの時刻 t へ移動する（AB・区間を設定中は、その中に収める） */
+  function seekTo(t: number, follow = true) {
     loop.interrupt();
-    const target = loop.resolveSeek(t, mode);
+    const target = loop.resolveSeek(t);
     engine.seek(target + timingOffset);
     if (follow) view?.resumeFollow();
   }
 
   function skip(delta: number) {
-    seekTo(tNow() + delta, 'clamp');
+    seekTo(tNow() + delta);
   }
 
   function prevSentence() {
     if (!transcript) return;
     const t = tNow() + PREROLL + 0.01;
     const si = transcript.sentenceAt(t);
-    if (si < 0) return seekTo(0, 'clamp');
+    if (si < 0) return seekTo(0);
     // 文の途中（1 秒以上経過）なら文頭へ、文頭付近なら前の文へ
     const target = t - transcript.sentences[si].start > 1 || si === 0 ? si : si - 1;
-    seekTo(transcript.sentences[target].start - PREROLL, 'clamp');
+    seekTo(transcript.sentences[target].start - PREROLL);
   }
 
   function nextSentence() {
@@ -199,7 +213,7 @@
     // 文頭より少し手前（PREROLL）から再生しているので、その分を足して「今の文」を判定する
     const si = transcript.sentenceAt(tNow() + PREROLL + 0.01);
     const target = Math.min(si + 1, transcript.sentences.length - 1);
-    seekTo(transcript.sentences[target].start - PREROLL, 'clamp');
+    seekTo(transcript.sentences[target].start - PREROLL);
   }
 
   function changeRate(delta: number) {
@@ -249,17 +263,52 @@
   function startSection([a, b]: [number, number]) {
     const tx = transcript!;
     loop.setSection({ start: tx.aPointForWord(a), end: tx.bPointForWord(b) });
-    engine.seek(loop.section!.start + timingOffset);
+    // 今の位置が区間の外なら、区間の最初へ移動する（再生・停止の状態はそのまま）
+    if (!loop.contains(tNow())) engine.seek(loop.section!.start + timingOffset);
     view?.resumeFollow();
-    void engine.play();
+    showToast(`区間を作りました（${formatTime(loop.section!.start)}–${formatTime(loop.section!.end)}）`);
   }
 
-  function onSelectionAction(action: 'sentenceAB' | 'rangeAB' | 'section') {
+  function onSelectionAction(action: 'sentenceAB' | 'rangeAB' | 'secStart' | 'secEnd') {
     if (!selWords || !transcript) return;
     const words = action === 'rangeAB' ? selWords : expandToSentences(selWords);
     clearSelection();
-    if (action === 'section') startSection(words);
-    else startAB(words);
+    if (action === 'secStart') {
+      pendingSecStart = words[0];
+      view?.setPendingSectionStart(words[0]);
+    } else if (action === 'secEnd' && pendingSecStart != null) {
+      const a = Math.min(pendingSecStart, words[0]);
+      const b = Math.max(pendingSecStart, words[1]);
+      cancelPendingSection();
+      startSection([expandToSentences([a, a])[0], b]);
+    } else {
+      startAB(words);
+    }
+  }
+
+  function cancelPendingSection() {
+    pendingSecStart = null;
+    view?.setPendingSectionStart(null);
+  }
+
+  /** 調整パネルを開いているときに、タップした単語へ A または B を置く */
+  function placePoint(i: number) {
+    const tx = transcript!;
+    const kind: RangeKind = panel === 'ab' ? 'ab' : 'section';
+    const r = kind === 'ab' ? loop.ab : loop.section;
+    if (!r) return;
+    // 区間は文単位でそろえる
+    const s = tx.sentences[tx.sentenceOfWord(i)];
+    const first = kind === 'ab' ? i : s.firstWord;
+    const last = kind === 'ab' ? i : s.lastWord;
+    if (editTarget === 'A') {
+      const start = tx.aPointForWord(first);
+      loop.update(kind, start < r.end - 0.3 ? { start } : { start, end: tx.bPointForWord(last) });
+      editTarget = 'B';
+    } else {
+      const end = tx.bPointForWord(last);
+      loop.update(kind, end > r.start + 0.3 ? { end } : { end, start: tx.aPointForWord(first) });
+    }
   }
 
   function sentenceABHere() {
@@ -277,6 +326,37 @@
     const s1 = tx.sentences[Math.max(0, tx.sentenceAt(tx.words[s0.firstWord].start + NEW_SECTION_SEC))];
     loop.setSection({ start: tx.aPointForWord(s0.firstWord), end: tx.bPointForWord(s1.lastWord) });
     panel = 'section';
+  }
+
+  // ---- 話題・日本語訳 ----
+  function readShowJa(): boolean {
+    try {
+      return localStorage.getItem(SHOW_JA_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  function toggleJa() {
+    showJa = !showJa;
+    view?.setShowJa(showJa);
+    try {
+      localStorage.setItem(SHOW_JA_KEY, showJa ? '1' : '0');
+    } catch {
+      /* 無視 */
+    }
+  }
+
+  /** 話題の範囲を区間にする */
+  function selectTopic(ti: number) {
+    const tx = transcript;
+    const t = tx?.doc.topics?.[ti];
+    if (!tx || !t) return;
+    loop.setSection({ start: tx.aPointForWord(t.firstWord), end: tx.bPointForWord(t.lastWord), name: t.titleEn ?? t.titleJa ?? null });
+    if (!loop.contains(tNow())) engine.seek(loop.section!.start + timingOffset);
+    panel = 'none';
+    view?.resumeFollow();
+    showToast(`区間：${t.titleJa || t.titleEn}`);
   }
 
   // ---- 範囲の保存・呼び出し ----
@@ -328,9 +408,8 @@
     void engine.play();
   }
 
-  function onRangeReleased(r: ActiveRange, reason: 'done' | 'left') {
-    const what = r.kind === 'ab' ? 'AB リピート' : '区間';
-    showToast(reason === 'done' ? `${what}を ${r.repeatCount} 回再生しました` : `範囲の外に移動したので${what}を解除しました`);
+  function onRangeReleased(r: ActiveRange) {
+    showToast(`${r.kind === 'ab' ? 'AB リピート' : '区間'}を ${r.repeatCount} 回再生しました`);
     if (panel === r.kind) panel = 'none';
   }
 
@@ -342,6 +421,12 @@
 
   function togglePanel(p: Panel) {
     panel = panel === p ? 'none' : p;
+    if (panel === 'ab' || panel === 'section') {
+      editTarget = 'A';
+      // 調整する範囲がどこにあるか分かるよう、範囲の始まりを画面に出す
+      const r = panel === 'ab' ? loop.ab : loop.section;
+      if (r && transcript) view?.reveal(transcript.wordForAPoint(r.start));
+    }
   }
 
   function onKey(e: KeyboardEvent) {
@@ -370,6 +455,9 @@
   <header>
     <button class="icon-btn" aria-label="一覧に戻る" onclick={() => router.go('#/')}><Icon name="chevron-left" /></button>
     <h1>{episode?.title ?? ''}</h1>
+    {#if hasJa}
+      <button class="icon-btn ja-btn" class:active={showJa} aria-label="日本語訳の表示" onclick={toggleJa}>訳</button>
+    {/if}
     <button
       class="icon-btn"
       class:active={panel === 'settings'}
@@ -394,7 +482,16 @@
         <div class="selbar">
           <button onclick={() => onSelectionAction('sentenceAB')}><Icon name="repeat" />この文でAB</button>
           <button onclick={() => onSelectionAction('rangeAB')}><Icon name="repeat" />選択範囲でAB</button>
-          <button onclick={() => onSelectionAction('section')}><Icon name="list" />区間にする</button>
+          {#if pendingSecStart == null}
+            <button onclick={() => onSelectionAction('secStart')}>区間の始まり</button>
+          {:else}
+            <button class="accent" onclick={() => onSelectionAction('secEnd')}>区間の終わり</button>
+          {/if}
+        </div>
+      {:else if pendingSecStart != null}
+        <div class="pending">
+          <span>区間の始まりを置きました。終わりにしたい文を長押し →［区間の終わり］</span>
+          <button class="icon-btn" aria-label="区間の作成をやめる" onclick={cancelPendingSection}><Icon name="close" /></button>
         </div>
       {:else if !following}
         <button class="pill primary" onclick={() => view?.resumeFollow('always')}>
@@ -427,7 +524,14 @@
       </div>
     {:else if panel === 'ranges'}
       <div class="panel">
-        <RangesSheet episodeId={id} {activeIds} onOpen={openSaved} onNewSection={newSection} onSentenceAB={sentenceABHere} />
+        <RangesSheet
+          episodeId={id}
+          {activeIds}
+          topics={transcript?.doc.topics ?? []}
+          onTopic={selectTopic}
+          onOpen={openSaved}
+          onNewSection={newSection}
+          onSentenceAB={sentenceABHere} />
       </div>
     {:else if (panel === 'ab' || panel === 'section') && transcript}
       <div class="panel">
@@ -435,7 +539,7 @@
           {loop}
           kind={panel}
           {transcript}
-          currentTime={tNow}
+          bind:target={editTarget}
           onPreview={(t) => {
             engine.seek(t + timingOffset);
             if (!engine.playing) void engine.play();
@@ -487,7 +591,7 @@
         }}
         onchange={(e) => {
           scrubbing = false;
-          seekTo(Number(e.currentTarget.value) - timingOffset, 'escape');
+          seekTo(Number(e.currentTarget.value) - timingOffset);
         }}
         aria-label="再生位置" />
       <span class="time">-{formatTime((engine.duration || 0) - shownTime)}</span>
@@ -544,6 +648,10 @@
   }
   .icon-btn.active {
     color: var(--accent);
+  }
+  .ja-btn {
+    font-size: 15px;
+    font-weight: 700;
   }
   .scroller {
     flex: 1;
@@ -602,6 +710,26 @@
   }
   .selbar button:active {
     background: var(--line);
+  }
+  .selbar .accent {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .pending {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--surface-2);
+    border: 1px solid rgba(245, 185, 66, 0.5);
+    border-radius: 14px;
+    padding: 4px 4px 4px 12px;
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .pending .icon-btn {
+    width: 32px;
+    height: 32px;
+    flex: none;
   }
   .selbar :global(svg) {
     width: 16px;

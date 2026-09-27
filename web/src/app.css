@@ -126,6 +126,61 @@ input[type='range'] {
   user-select: none;
 }
 
+/* 話題の見出し（タップでその話題が区間になる） */
+.transcript .topic {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 12px;
+  align-items: center;
+  margin: 1.6em 0 0.8em;
+  padding: 10px 12px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  border-radius: 0 10px 10px 0;
+  font-family: var(--font);
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.transcript .topic:active {
+  background: var(--surface-2);
+}
+.topic-en {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+.topic-ja {
+  grid-row: 2;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.topic-go {
+  grid-row: span 2;
+  grid-column: 2;
+  font-size: 11px;
+  color: var(--accent);
+  border: 1px solid rgba(245, 185, 66, 0.5);
+  border-radius: 12px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+
+/* 日本語訳（「訳」ボタンで表示） */
+.transcript .ja {
+  display: none;
+  margin-top: 0.5em;
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text-dim);
+}
+.transcript.show-ja .ja {
+  display: block;
+}
+
 .transcript .s {
   color: var(--text-dim);
   transition: color 0.2s;
@@ -148,6 +203,49 @@ input[type='range'] {
 /* AB リピートの範囲は文字色で示す（背景を付けると単語ごとに四角く区切れて読みにくい） */
 .transcript .w.in-ab {
   color: #a9c9ff;
+}
+
+/* 範囲の端の目印（A・B・区間の始まり／終わり） */
+.transcript .w[class*='pin-']::before,
+.transcript .w[class*='pin-']::after {
+  font-family: var(--font);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: 3px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  color: #000;
+}
+.transcript .w.pin-ab-a::before {
+  content: 'A';
+  background: #8ab8ff;
+  margin-right: 3px;
+}
+.transcript .w.pin-ab-b::after {
+  content: 'B';
+  background: #8ab8ff;
+  margin-left: 3px;
+}
+.transcript .w.pin-sec-a::before,
+.transcript .w.pin-sec-pending::before {
+  content: '区間▶';
+  background: var(--accent);
+  margin-right: 3px;
+}
+.transcript .w.pin-sec-b::after {
+  content: '◀区間';
+  background: var(--accent);
+  margin-left: 3px;
+}
+/* A と区間の始まりが同じ単語のときは A を優先 */
+.transcript .w.pin-ab-a.pin-sec-a::before {
+  content: 'A';
+  background: #8ab8ff;
+}
+.transcript .w.pin-ab-b.pin-sec-b::after {
+  content: 'B';
+  background: #8ab8ff;
 }
 
 /* 背景色だけを変える（余白を足すと行が動いて重くなるため） */

@@ -3,6 +3,8 @@ import type { Transcript } from './transcript';
 export interface TranscriptViewOptions {
   onWordTap: (wordIndex: number) => void;
   onFollowChange: (following: boolean) => void;
+  /** 話題の見出しをタップしたとき */
+  onTopicTap?: (topicIndex: number) => void;
 }
 
 // 段落の区切り: 話者が変わる / 文の間の無音がこれ以上 / 文がこれ以上たまった
@@ -34,6 +36,8 @@ export class TranscriptView {
   private following = true;
   private skipScrollOnce = false;
   private marked: Record<'in-ab' | 'in-sec', [number, number] | null> = { 'in-ab': null, 'in-sec': null };
+  /** 範囲の端に付ける目印（A・B・区間の始まり／終わり）→ 単語番号 */
+  private pins = new Map<string, number>();
   private offset = 0;
   private cleanup: (() => void)[] = [];
 
@@ -63,6 +67,8 @@ export class TranscriptView {
     const s = w >= 0 ? this.transcript.sentenceOfWord(w) : -1;
     // 位置の読み取りは、クラスを書き換える「前」に行う（書き換え後に読むと、その場で再レイアウトが走って重くなる）
     const needScroll = this.following && !this.skipScrollOnce && w >= 0 && this.isOutsideFollowBand(this.wordEls[w]);
+    // 開いた直後の位置合わせは、上からスクロールしていく様子を見せずに瞬時に移動する
+    const first = this.curWord === -2;
     this.skipScrollOnce = false;
 
     if (this.curWord >= 0) this.wordEls[this.curWord]?.classList.remove('cur');
@@ -75,7 +81,7 @@ export class TranscriptView {
       this.curSentence = s;
     }
 
-    if (needScroll) this.follow();
+    if (needScroll) this.follow(first);
   }
 
   /**
@@ -103,6 +109,10 @@ export class TranscriptView {
   setRanges(ab: [number, number] | null, section: [number, number] | null): void {
     this.applyRangeClass('in-ab', ab);
     this.applyRangeClass('in-sec', section);
+    this.pin('pin-ab-a', ab?.[0] ?? null);
+    this.pin('pin-ab-b', ab?.[1] ?? null);
+    this.pin('pin-sec-a', section?.[0] ?? null);
+    this.pin('pin-sec-b', section?.[1] ?? null);
     this.content.classList.toggle('has-sec', section !== null);
     this.content.classList.toggle('has-ab', ab !== null);
   }
@@ -111,6 +121,8 @@ export class TranscriptView {
   wordIndexOf(node: Node | null, preferNext: boolean): number | null {
     if (!node || !this.content.contains(node)) return null;
     const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+    // 日本語訳や見出しの中の選択は対象外（コピーは iOS 標準のメニューでできる）
+    if (el?.closest('.ja, .topic')) return null;
     const w = el?.closest<HTMLElement>('[data-w]');
     if (w) return Number(w.dataset.w);
     // 単語の間のスペースなど → 隣の単語
@@ -125,6 +137,33 @@ export class TranscriptView {
       return preferNext ? sent.firstWord : sent.lastWord;
     }
     return null;
+  }
+
+  /** 区間の始まりだけ決めて、終わりを待っている状態の目印 */
+  setPendingSectionStart(word: number | null): void {
+    this.pin('pin-sec-pending', word);
+  }
+
+  /** 単語番号 i が見える位置までスクロールする（見えていれば動かさない） */
+  reveal(i: number): void {
+    const el = this.wordEls[i];
+    if (!el) return;
+    const box = this.scroller.getBoundingClientRect();
+    const y = el.getBoundingClientRect().top - box.top;
+    if (y >= box.height * FOLLOW_TOP && y <= box.height * FOLLOW_BOTTOM) return;
+    this.scroller.scrollTo({ top: this.scroller.scrollTop + y - box.height * FOLLOW_TARGET, behavior: 'smooth' });
+  }
+
+  private pin(cls: string, i: number | null): void {
+    const prev = this.pins.get(cls);
+    if (prev === i) return;
+    if (prev != null) this.wordEls[prev]?.classList.remove(cls);
+    if (i != null) {
+      this.wordEls[i]?.classList.add(cls);
+      this.pins.set(cls, i);
+    } else {
+      this.pins.delete(cls);
+    }
   }
 
   private applyRangeClass(cls: 'in-ab' | 'in-sec', next: [number, number] | null): void {
@@ -144,31 +183,79 @@ export class TranscriptView {
   }
 
   private render(): void {
-    const { words, sentences } = this.transcript;
+    const { words, sentences, doc } = this.transcript;
     const frag = document.createDocumentFragment();
     this.wordEls = new Array(words.length);
     this.sentenceEls = new Array(sentences.length);
+
+    // 話題の見出しを入れる位置（単語番号 → 話題番号）
+    const topicAt = new Map<number, number>();
+    (doc.topics ?? []).forEach((t, ti) => topicAt.set(t.firstWord, ti));
+    const paragraphs = doc.paragraphs?.length ? doc.paragraphs : null;
 
     let p: HTMLElement | null = null;
     let inParagraph = 0;
     let prevSpeaker: string | null | undefined;
     let prevEnd = 0;
+    let pi = -1; // 今の段落（JSON に段落がある場合）
+
+    const openParagraph = (speaker: string | null | undefined, forceLabel: boolean) => {
+      p = document.createElement('p');
+      p.className = 'p';
+      if (speaker != null && (forceLabel || speaker !== prevSpeaker)) {
+        const label = document.createElement('span');
+        label.className = 'spk';
+        label.textContent = this.speakerName(speaker);
+        p.append(label);
+      }
+      frag.append(p);
+      inParagraph = 0;
+    };
+
+    const closeParagraph = () => {
+      const ja = paragraphs?.[pi]?.ja;
+      if (p && ja) {
+        const el = document.createElement('span');
+        el.className = 'ja';
+        el.lang = 'ja';
+        el.textContent = ja;
+        p.append(el);
+      }
+    };
 
     sentences.forEach((sent, si) => {
-      const speakerChanged = sent.speaker != null && sent.speaker !== prevSpeaker;
-      if (!p || speakerChanged || sent.start - prevEnd >= PARAGRAPH_PAUSE_SEC || inParagraph >= PARAGRAPH_MAX_SENTENCES) {
-        p = document.createElement('p');
-        p.className = 'p';
-        if (speakerChanged) {
-          const label = document.createElement('span');
-          label.className = 'spk';
-          label.textContent = this.speakerName(sent.speaker!);
-          p.append(label);
-        }
-        frag.append(p);
-        inParagraph = 0;
+      const topic = topicAt.get(sent.firstWord);
+      if (topic !== undefined) {
+        closeParagraph();
+        const t = doc.topics![topic];
+        const h = document.createElement('div');
+        h.className = 'topic';
+        h.dataset.topic = String(topic);
+        h.innerHTML = '<span class="topic-en"></span><span class="topic-ja"></span><span class="topic-go">区間にする</span>';
+        (h.children[0] as HTMLElement).textContent = t.titleEn ?? '';
+        (h.children[1] as HTMLElement).textContent = t.titleJa ?? '';
+        frag.append(h);
+        p = null;
       }
-      prevSpeaker = sent.speaker;
+
+      if (paragraphs) {
+        // JSON の段落に従う
+        const inCurrent = pi >= 0 && sent.firstWord <= paragraphs[pi].lastWord;
+        if (!p || !inCurrent) {
+          if (p) closeParagraph();
+          if (!inCurrent) {
+            const next = paragraphs.findIndex((x, k) => k > pi && sent.firstWord <= x.lastWord);
+            if (next !== -1) pi = next;
+          }
+          openParagraph(paragraphs[pi]?.speaker ?? sent.speaker, topic !== undefined);
+        }
+      } else {
+        const speakerChanged = sent.speaker != null && sent.speaker !== prevSpeaker;
+        if (!p || speakerChanged || sent.start - prevEnd >= PARAGRAPH_PAUSE_SEC || inParagraph >= PARAGRAPH_MAX_SENTENCES) {
+          openParagraph(sent.speaker, false);
+        }
+      }
+      prevSpeaker = paragraphs ? (paragraphs[pi]?.speaker ?? sent.speaker) : sent.speaker;
       prevEnd = sent.end;
       inParagraph++;
 
@@ -184,9 +271,15 @@ export class TranscriptView {
         s.append(w, ' ');
       }
       this.sentenceEls[si] = s;
-      p.append(s);
+      p!.append(s);
     });
+    closeParagraph();
     this.content.replaceChildren(frag);
+  }
+
+  /** 日本語訳の表示・非表示 */
+  setShowJa(on: boolean): void {
+    this.content.classList.toggle('show-ja', on);
   }
 
   private speakerName(id: string): string {
@@ -199,6 +292,11 @@ export class TranscriptView {
       // 長押しで文字を選択している最中のタップは「選択の解除」として扱い、再生位置は動かさない
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed) return;
+      const topic = (e.target as HTMLElement).closest<HTMLElement>('[data-topic]');
+      if (topic) {
+        this.opts.onTopicTap?.(Number(topic.dataset.topic));
+        return;
+      }
       const target = (e.target as HTMLElement).closest<HTMLElement>('[data-w]');
       if (!target) return;
       this.opts.onWordTap(Number(target.dataset.w));
@@ -229,13 +327,13 @@ export class TranscriptView {
     return y < box.height * FOLLOW_TOP || y > box.height * FOLLOW_BOTTOM;
   }
 
-  private follow(): void {
+  private follow(instant = false): void {
     const el = this.wordEls[this.curWord];
     if (!el) return;
     const box = this.scroller.getBoundingClientRect();
     const y = el.getBoundingClientRect().top - box.top;
     const top = this.scroller.scrollTop + y - box.height * FOLLOW_TARGET;
-    const far = Math.abs(y) > box.height * SMOOTH_LIMIT_SCREENS;
+    const far = instant || Math.abs(y) > box.height * SMOOTH_LIMIT_SCREENS;
     // 基本はなめらかにスクロールして、どこからどこへ移動したかを目で追えるようにする
     this.scroller.scrollTo({ top, behavior: far ? 'auto' : 'smooth' });
     if (far) {

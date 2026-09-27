@@ -52,7 +52,11 @@ export async function importFiles(files: File[]): Promise<ImportResult> {
         result.messages.push(`スクリプト（${stem}.json）が選ばれていません: ${a.name}`);
       }
     }
-    for (const j of jsons.values()) result.messages.push(`音声が選ばれていません: ${j.name}`);
+    // JSON だけが選ばれた場合は、取り込み済みのエピソードのスクリプトを更新する
+    for (const j of jsons.values()) {
+      const updated = await updateTranscriptOnly(j, result);
+      if (!updated) result.messages.push(`音声が選ばれていません: ${j.name}`);
+    }
   }
 
   for (const [audioFile, jsonFile] of pairs) {
@@ -96,7 +100,8 @@ async function importPair(audioFile: File, jsonFile: File, result: ImportResult)
   if (sha) {
     const dup = await db.episodes.where('audioSha256').equals(sha).first();
     if (dup) {
-      result.messages.push(`${audioFile.name}: すでに「${dup.title}」として取り込み済みです`);
+      await replaceTranscript(dup, doc);
+      result.messages.push(`「${dup.title}」はすでに取り込み済みなので、スクリプトだけ更新しました`);
       return null;
     }
   }
@@ -123,4 +128,28 @@ async function importPair(audioFile: File, jsonFile: File, result: ImportResult)
     await db.episodes.put(episode);
   });
   return id;
+}
+
+/** JSON だけを選んだとき: audio.sha256 が同じエピソードのスクリプトを差し替える */
+async function updateTranscriptOnly(jsonFile: File, result: ImportResult): Promise<boolean> {
+  let doc: TranscriptDoc;
+  try {
+    doc = JSON.parse(await jsonFile.text());
+  } catch {
+    return false;
+  }
+  if (validateTranscript(doc) || !doc.audio.sha256) return false;
+  const ep = await db.episodes.where('audioSha256').equals(doc.audio.sha256).first();
+  if (!ep) return false;
+  await replaceTranscript(ep, doc);
+  result.messages.push(`「${doc.title || ep.title}」のスクリプトを更新しました（マーク・範囲はそのまま）`);
+  return true;
+}
+
+/** マーク・範囲・再生位置は時刻で持っているので、スクリプトを差し替えてもそのまま使える */
+async function replaceTranscript(ep: Episode, doc: TranscriptDoc): Promise<void> {
+  await db.transaction('rw', [db.episodes, db.transcripts], async () => {
+    await db.transcripts.put({ episodeId: ep.id, doc });
+    await db.episodes.update(ep.id, { title: doc.title || ep.title, wordCount: doc.words.length });
+  });
 }

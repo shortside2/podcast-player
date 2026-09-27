@@ -2,17 +2,22 @@
   import { liveQuery } from 'dexie';
   import Icon from './Icon.svelte';
   import { db, type SavedRange } from '../lib/db/db';
-  import { formatTimePrecise } from '../lib/format';
+  import { formatTime, formatTimePrecise } from '../lib/format';
+  import type { TranscriptTopic } from '../lib/transcript/types';
 
   let {
     episodeId,
     activeIds,
+    topics,
+    onTopic,
     onOpen,
     onNewSection,
     onSentenceAB,
   }: {
     episodeId: string;
     activeIds: (string | null)[];
+    topics: TranscriptTopic[];
+    onTopic: (index: number) => void;
     onOpen: (r: SavedRange, parent: SavedRange | null) => void;
     onNewSection: () => void;
     onSentenceAB: () => void;
@@ -69,6 +74,22 @@
   </div>
   <p class="hint">文を長押しして選択すると、選んだ範囲で AB リピートや区間を作れます。</p>
 
+  {#if topics.length}
+    <h3>話題（タップで区間にする）</h3>
+    <ul class="topics">
+      {#each topics as t, i}
+        <li>
+          <button class="open" onclick={() => onTopic(i)}>
+            <span class="kind">{i + 1}</span>
+            <span class="name">{t.titleJa || t.titleEn}</span>
+            <span class="meta">{formatTime(t.start)}–{formatTime(t.end)}{t.titleJa && t.titleEn ? ` · ${t.titleEn}` : ''}</span>
+          </button>
+        </li>
+      {/each}
+    </ul>
+    <h3>保存した範囲</h3>
+  {/if}
+
   {#if $ranges && $ranges.length === 0}
     <p class="empty">保存した範囲はまだありません。</p>
   {/if}
@@ -97,6 +118,17 @@
   .new {
     display: flex;
     gap: 8px;
+  }
+  h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    margin: 14px 0 4px;
+  }
+  .topics .meta {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .hint,
   .empty {
