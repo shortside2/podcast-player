@@ -43,8 +43,8 @@ export async function addMark(m: Mark): Promise<{ mark: Mark; created: boolean }
 
 /** マークの種類。Claude に送るとき、どう分からなかったかを毎回書かなくて済むようにする */
 export const MARK_TAGS = [
-  { id: 'listen', label: '聞き取れない', hint: '音がつかめない・速い・つながって聞こえる', color: '#5aa9ff' },
-  { id: 'unknown', label: '知らない表現', hint: '単語・イディオム・スラングを知らない', color: '#ffae42' },
+  { id: 'listen', label: '聞き取れない', hint: '音がつかめない・速い・つながって聞こえる', color: '#ff5a5a' },
+  { id: 'unknown', label: '知らない表現', hint: '単語・イディオム・スラングを知らない', color: '#5aa9ff' },
   { id: 'meaning', label: '意味がつかめない', hint: '単語は分かるのに、文の構造や言い回しで意味がすっと入らない', color: '#b58cff' },
   { id: 'use', label: '使いたい表現', hint: '言い回しを覚えて自分でも使いたい', color: '#4cd08a' },
 ] as const;

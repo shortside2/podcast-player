@@ -11,12 +11,15 @@
     transcript = null,
     onClose,
     onMessage,
+    onPractice,
   }: {
     mark: Mark;
     /** あれば、マークの範囲を単語単位で直せる */
     transcript?: Transcript | null;
     onClose: () => void;
     onMessage: (text: string) => void;
+    /** あれば「発音練習」ボタンを出す */
+    onPractice?: (m: Mark) => void;
   } = $props();
 
   // 閉じる途中（入力欄のフォーカスが外れたときなど）でも保存できるよう、開いた時点のマークを控えておく
@@ -142,6 +145,9 @@
 
   <div class="actions">
     <button class="pill" class:on={mastered} onclick={toggleMastered}>{mastered ? '✓ 習得済み' : '習得済みにする'}</button>
+    {#if onPractice}
+      <button class="pill" onclick={async () => { await saveNote(); onPractice({ ...m, text }); }}><Icon name="mic" />発音</button>
+    {/if}
     <button class="pill" onclick={copy}>コピー</button>
     <button class="pill del" onclick={trash}><Icon name="trash" />ゴミ箱へ</button>
   </div>
@@ -239,6 +245,7 @@
   }
   .actions {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 8px;
   }

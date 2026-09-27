@@ -5,6 +5,8 @@
   import RangeEditor from '../components/RangeEditor.svelte';
   import RangesSheet from '../components/RangesSheet.svelte';
   import MarkEditor from '../components/MarkEditor.svelte';
+  import PracticePanel from '../components/PracticePanel.svelte';
+  import { Practice, type PracticeTarget } from '../lib/playback/practice.svelte';
   import { liveQuery } from 'dexie';
   import { addMark, buildMark, isLive, loadPlaylistSettings, markColor, withAlpha } from '../lib/marks';
   import { MarkPlayer } from '../lib/playback/markPlayer.svelte';
@@ -27,7 +29,7 @@
   const AB_DEFAULTS_KEY = 'listenloop.abDefaults';
   const SHOW_JA_KEY = 'listenloop.showJa';
 
-  type Panel = 'none' | 'speed' | 'settings' | 'ranges' | 'ab' | 'section' | 'mark';
+  type Panel = 'none' | 'speed' | 'settings' | 'ranges' | 'ab' | 'section' | 'mark' | 'practice';
   const AUTO_MARK_KEY = 'listenloop.autoMarkAB';
 
   const engine = new PlaybackEngine();
@@ -46,6 +48,9 @@
   /** メモを編集中のマーク */
   let editingMark = $state<Mark | null>(null);
   let autoMarkAB = $state(readFlag(AUTO_MARK_KEY));
+  /** 発音練習（お手本 → 録音 → 聴き比べ） */
+  const practice = new Practice(engine, loop, () => timingOffset);
+  let practiceFor = $state<{ target: PracticeTarget; text: string } | null>(null);
   /** マーク箇所の連続再生 */
   const markPlayer = new MarkPlayer(engine, loop, () => transcript, () => timingOffset, () =>
     showToast('記録の連続再生が終わりました'),
@@ -171,6 +176,7 @@
   });
 
   onDestroy(() => {
+    practice.destroy();
     markPlayer.destroy();
     void savePosition();
     disposers.forEach((d) => d());
@@ -473,6 +479,22 @@
     showToast(created ? '記録しました' : 'すでに記録してあります');
   }
 
+  function openPractice(target: PracticeTarget, text: string) {
+    markPlayer.stop();
+    practiceFor = { target, text };
+    panel = 'practice';
+  }
+
+  function practiceAB() {
+    const ab = loop.ab;
+    const tx = transcript;
+    if (!ab || !tx) return;
+    const a = tx.wordForAPoint(ab.start);
+    const b = tx.wordForBPoint(ab.end);
+    engine.pause();
+    openPractice({ episodeId: id, start: ab.start, end: ab.end }, tx.words.slice(a, b + 1).map((w) => w.text).join(' '));
+  }
+
   /** 今の AB リピートの範囲をマークする（リピートは続けたまま） */
   function markAB() {
     const ab = loop.ab;
@@ -640,10 +662,20 @@
           }}
           onSave={() => (panel === 'ab' ? markAB() : saveRange('section'))} />
       </div>
+    {:else if panel === 'practice' && practiceFor}
+      <div class="panel">
+        {#key `${practiceFor.target.start}-${practiceFor.target.end}-${practiceFor.target.markId}`}
+          <PracticePanel {practice} target={practiceFor.target} text={practiceFor.text} onClose={() => { panel = 'none'; practiceFor = null; }} />
+        {/key}
+      </div>
     {:else if panel === 'mark' && editingMark}
       <div class="panel">
         {#key editingMark.id}
-          <MarkEditor mark={editingMark} {transcript} onClose={() => { panel = 'none'; editingMark = null; }} onMessage={showToast} />
+          <MarkEditor
+            mark={editingMark}
+            {transcript}
+            onPractice={(m) => { engine.pause(); openPractice({ episodeId: id, start: m.start, end: m.end, markId: m.id }, m.text); }}
+            onClose={() => { panel = 'none'; editingMark = null; }} onMessage={showToast} />
         {/key}
       </div>
     {:else if panel === 'settings'}
@@ -696,6 +728,7 @@
         </button>
         {#if r.kind === 'ab'}
           <button class="icon-btn rb-mark" aria-label="この範囲を記録" onclick={markAB}><Icon name="bookmark" /></button>
+          <button class="icon-btn rb-mark mic" aria-label="発音練習" onclick={practiceAB}><Icon name="mic" /></button>
         {/if}
         <button class="icon-btn rb-x" aria-label={r.kind === 'ab' ? 'ABリピートを解除' : '区間を解除'} onclick={() => loop.release(r.kind)}><Icon name="close" /></button>
       </div>
@@ -939,6 +972,10 @@
     margin-right: 10px;
     border-radius: 10px;
     color: #8ab8ff;
+  }
+  .rb-mark.mic {
+    color: #ff8a8a;
+    width: 40px;
   }
   .rb-mark :global(svg) {
     width: 22px;

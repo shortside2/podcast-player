@@ -67,6 +67,10 @@ export interface Recording {
   start: number;
   end: number;
   sentenceIndex: number | null;
+  /** 記録（マーク）から録音したときの記録 ID */
+  markId?: string | null;
+  /** 録音の長さ（秒） */
+  duration?: number;
   blob: Blob;
   mimeType: string;
   createdAt: number;

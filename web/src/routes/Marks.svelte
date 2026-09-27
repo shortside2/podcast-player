@@ -3,6 +3,8 @@
   import { onDestroy, onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
   import MarkEditor from '../components/MarkEditor.svelte';
+  import PracticePanel from '../components/PracticePanel.svelte';
+  import { Practice } from '../lib/playback/practice.svelte';
   import Stars from '../components/Stars.svelte';
   import { db, type Episode, type Mark } from '../lib/db/db';
   import { dialog } from '../lib/dialog.svelte';
@@ -85,6 +87,21 @@
     showToast('最後まで再生しました'),
   );
   let disconnectMedia: (() => void) | null = null;
+  const practice = new Practice(engine, loop, offsetOfCurrentPractice);
+  /** 発音練習を開いている記録 */
+  let practicing = $state<Mark | null>(null);
+
+  function offsetOfCurrentPractice(): number {
+    return offsets.get(practicing?.episodeId ?? '') ?? 0;
+  }
+
+  async function openPractice(m: Mark) {
+    markPlayer.stop();
+    engine.pause();
+    if (!(await ensureLoaded(m.episodeId))) return showToast('エピソードが見つかりません');
+    editing = null;
+    practicing = m;
+  }
 
   async function loadTranscript(epId: string): Promise<void> {
     if (transcripts.has(epId)) return;
@@ -125,6 +142,7 @@
   });
 
   onDestroy(() => {
+    practice.destroy();
     markPlayer.destroy();
     loop.destroy();
     disconnectMedia?.();
@@ -232,6 +250,16 @@
   function playOrPause(m: Mark) {
     if (markPlayer.current?.id === m.id) markPlayer.toggle();
     else void play([m], 0);
+  }
+
+  /** 選んだ記録をまとめてゴミ箱へ */
+  async function trashSelected() {
+    const list = selectedMarks();
+    if (!list.length) return;
+    const now = Date.now();
+    await db.marks.bulkUpdate(list.map((m) => ({ key: m.id, changes: { deletedAt: now } })));
+    selected = new Set();
+    showToast(`${list.length} 件をゴミ箱に入れました`);
   }
 
   async function unmaster(m: Mark) {
@@ -381,9 +409,20 @@
         </div>
         <ul>
           {#each g.marks as m (m.id)}
-            <li class:mastered={m.mastered} class:open={editing === m.id} class:playing={markPlayer.current?.id === m.id} style:--mc={markColor(m)}>
-              {#if editing === m.id}
-                <MarkEditor mark={m} transcript={transcripts.get(m.episodeId) ?? null} onClose={() => (editing = null)} onMessage={showToast} />
+            <li class:mastered={m.mastered} class:open={editing === m.id || practicing?.id === m.id} class:playing={markPlayer.current?.id === m.id} style:--mc={markColor(m)}>
+              {#if practicing?.id === m.id}
+                <PracticePanel
+                  {practice}
+                  target={{ episodeId: m.episodeId, start: m.start, end: m.end, markId: m.id }}
+                  text={m.text}
+                  onClose={() => (practicing = null)} />
+              {:else if editing === m.id}
+                <MarkEditor
+                  mark={m}
+                  transcript={transcripts.get(m.episodeId) ?? null}
+                  onPractice={(x) => void openPractice(x)}
+                  onClose={() => (editing = null)}
+                  onMessage={showToast} />
               {:else}
                 <div class="row">
                   {#if selecting}
@@ -442,10 +481,11 @@
     {/if}
     {#if selecting && tab !== 'trash'}
       <div class="selbar">
-        <span>{selected.size} 件選択</span>
+        <span>{selected.size}件</span>
         <button class="pill" onclick={() => (selected = new Set(allVisible.map((m) => m.id)))}>すべて</button>
-        <button class="pill" onclick={() => play(selectedMarks(), 0)} disabled={!selected.size}><Icon name="play" />連続再生</button>
-        <button class="pill primary" onclick={() => copy(selectedMarks())} disabled={!selected.size}>コピー</button>
+        <button class="pill" onclick={() => play(selectedMarks(), 0)} disabled={!selected.size}><Icon name="play" />再生</button>
+        <button class="pill" onclick={() => copy(selectedMarks())} disabled={!selected.size}>コピー</button>
+        <button class="pill danger" aria-label="選んだ記録をゴミ箱へ" onclick={trashSelected} disabled={!selected.size}><Icon name="trash" />削除</button>
       </div>
     {/if}
   </div>
@@ -692,6 +732,15 @@
     padding: 10px 16px;
     border-top: 1px solid var(--line);
     font-size: 13px;
+  }
+  .selbar .pill {
+    height: 32px;
+    padding: 0 10px;
+    font-size: 13px;
+  }
+  .selbar .pill :global(svg) {
+    width: 16px;
+    height: 16px;
   }
   .selbar span {
     margin-right: auto;

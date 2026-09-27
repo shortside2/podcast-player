@@ -34,6 +34,8 @@ export class LoopController {
   stack = $state<ActiveRange[]>([]);
   /** 繰り返しの間の無音で待っている最中 */
   waiting = $state(false);
+  /** 発音練習でお手本を 1 回だけ流すあいだなど、繰り返しを一時的に止める */
+  suspended = false;
 
   private gapTimer: ReturnType<typeof setTimeout> | null = null;
   private bgTimer: ReturnType<typeof setTimeout> | null = null;
@@ -140,7 +142,7 @@ export class LoopController {
 
   private check(audioTime: number): void {
     const r = this.inner;
-    if (!r || this.handling || this.waiting || this.engine.audio.paused) return;
+    if (!r || this.suspended || this.handling || this.waiting || this.engine.audio.paused) return;
     const t = audioTime - this.getOffset();
     if (t >= r.end - LOOKAHEAD_SEC * this.engine.rate) this.handleEnd();
   }
