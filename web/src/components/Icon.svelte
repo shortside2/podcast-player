@@ -43,6 +43,12 @@
     <path d="M8 6h12M8 12h12M8 18h12" /><circle cx="4" cy="6" r="1" fill="currentColor" /><circle cx="4" cy="12" r="1" fill="currentColor" /><circle cx="4" cy="18" r="1" fill="currentColor" />
   {:else if name === 'edit'}
     <path d="M4 20h4L19 9l-4-4L4 16z" />
+  {:else if name === 'send'}
+    <path d="M4 12 20 4l-5 16-3-7z" /><path d="M12 13 20 4" />
+  {:else if name === 'marker'}
+    <path d="M4 20h16" /><path d="M7 16l9-9 3 3-9 9H7z" />
+  {:else if name === 'check'}
+    <path d="M5 12l5 5 9-10" />
   {:else if name === 'trash'}
     <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
   {/if}

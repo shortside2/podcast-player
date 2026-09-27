@@ -3,7 +3,11 @@
   import Icon from '../components/Icon.svelte';
   import RangeEditor from '../components/RangeEditor.svelte';
   import RangesSheet from '../components/RangesSheet.svelte';
-  import { db, newId, type Episode, type SavedRange } from '../lib/db/db';
+  import MarkEditor from '../components/MarkEditor.svelte';
+  import { liveQuery } from 'dexie';
+  import { addMark, buildMark, loadPlaylistSettings, type PlaylistSettings } from '../lib/marks';
+  import { sendToClaude } from '../lib/share';
+  import { db, newId, type Episode, type Mark, type SavedRange } from '../lib/db/db';
   import { formatTime, formatTimePrecise } from '../lib/format';
   import { PlaybackEngine } from '../lib/playback/engine.svelte';
   import { LoopController, type ActiveRange, type RangeKind } from '../lib/playback/loop.svelte';
@@ -13,7 +17,7 @@
   import { Transcript } from '../lib/transcript/transcript';
   import { TranscriptView } from '../lib/transcript/view';
 
-  let { id }: { id: string } = $props();
+  let { id, startAt = null, playIds = null }: { id: string; startAt?: number | null; playIds?: string[] | null } = $props();
 
   // 単語の頭が欠けないよう、少しだけ手前から再生する
   const PREROLL = 0.05;
@@ -22,7 +26,8 @@
   const AB_DEFAULTS_KEY = 'listenloop.abDefaults';
   const SHOW_JA_KEY = 'listenloop.showJa';
 
-  type Panel = 'none' | 'speed' | 'settings' | 'ranges' | 'ab' | 'section';
+  type Panel = 'none' | 'speed' | 'settings' | 'ranges' | 'ab' | 'section' | 'mark';
+  const AUTO_MARK_KEY = 'listenloop.autoMarkAB';
 
   const engine = new PlaybackEngine();
   const loop = new LoopController(engine, () => timingOffset, onRangeReleased);
@@ -37,6 +42,16 @@
   let scrubValue = $state(0);
   /** 長押しで選択している単語の範囲 */
   let selWords = $state<[number, number] | null>(null);
+  /** 選択中の文字列（日本語訳を選んだときも入る） */
+  let selText = $state('');
+  /** メモを編集中のマーク */
+  let editingMark = $state<Mark | null>(null);
+  let autoMarkAB = $state(readFlag(AUTO_MARK_KEY));
+  /** マーク箇所の連続再生 */
+  let playlist = $state<{ marks: Mark[]; index: number; settings: PlaylistSettings; waiting: boolean } | null>(null);
+  let playlistTimer: ReturnType<typeof setTimeout> | null = null;
+  // svelte-ignore state_referenced_locally
+  const episodeMarks = liveQuery(() => db.marks.where('episodeId').equals(id).toArray());
   let toast = $state<string | null>(null);
   /** 調整パネルを開いているとき、テキストのタップで動かす点 */
   let editTarget = $state<'A' | 'B'>('A');
@@ -88,7 +103,7 @@
     view.setTimingOffset(timingOffset);
     view.setShowJa(showJa);
     // 先に音声を読み込んで、最初のハイライトが「続きの位置」から始まるようにする
-    engine.load(audio.blob, ep.lastPosition, ep.rate);
+    engine.load(audio.blob, startAt ?? ep.lastPosition, ep.rate);
     disposers.push(engine.onFrame((t) => view?.update(t)));
     disposers.push(
       connectMediaSession(engine, {
@@ -130,6 +145,7 @@
     );
 
     if (wakeLock.enabled) void wakeLock.acquire();
+    if (playIds?.length) void preparePlaylist(playIds);
   }
 
   async function savePosition() {
@@ -141,7 +157,16 @@
     });
   }
 
+  // マークした単語に下線（習得済みは除く）
+  $effect(() => {
+    const list = $episodeMarks;
+    const tx = transcript;
+    if (!list || !tx || !view) return;
+    view.setMarks(list.filter((m) => !m.mastered).map((m) => tx.wordRangeForTimes(m.start, m.end)).filter((r): r is [number, number] => !!r));
+  });
+
   onDestroy(() => {
+    if (playlistTimer) clearTimeout(playlistTimer);
     void savePosition();
     disposers.forEach((d) => d());
     loop.destroy();
@@ -231,10 +256,12 @@
   // ---- テキスト選択 → 操作バー ----
   function readSelection() {
     const sel = window.getSelection();
-    if (!view || !sel || sel.isCollapsed || sel.rangeCount === 0) {
+    if (!view || !sel || sel.isCollapsed || sel.rangeCount === 0 || !content?.contains(sel.anchorNode)) {
       selWords = null;
+      selText = '';
       return;
     }
+    selText = sel.toString().replace(/\s+/g, ' ').trim();
     const r = sel.getRangeAt(0);
     const a = view.wordIndexOf(r.startContainer, true);
     const b = view.wordIndexOf(r.endContainer, false);
@@ -244,6 +271,7 @@
   function clearSelection() {
     window.getSelection()?.removeAllRanges();
     selWords = null;
+    selText = '';
   }
 
   /** 選んだ単語を、それを含む文全体に広げる */
@@ -254,7 +282,10 @@
 
   function startAB([a, b]: [number, number]) {
     const tx = transcript!;
+    stopPlaylist(false);
     loop.setAB({ start: tx.aPointForWord(a), end: tx.bPointForWord(b), ...abDefaults() });
+    // 設定で「AB 開始時に自動でマーク」がオンなら、そのままマーク一覧にも入れる
+    if (autoMarkAB) void markWords([a, b], false);
     engine.seek(loop.ab!.start + timingOffset);
     view?.resumeFollow();
     void engine.play();
@@ -408,7 +439,113 @@
     void engine.play();
   }
 
+  // ---- マーク ----
+  function readFlag(key: string): boolean {
+    try {
+      return localStorage.getItem(key) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  function setAutoMark(on: boolean) {
+    autoMarkAB = on;
+    try {
+      localStorage.setItem(AUTO_MARK_KEY, on ? '1' : '0');
+    } catch {
+      /* 無視 */
+    }
+  }
+
+  /** 単語 a〜b をマークする。openEditor ならメモ欄を開く */
+  async function markWords(words: [number, number], openEditor = true) {
+    if (!transcript) return;
+    const { mark, created } = await addMark(buildMark(transcript, id, words));
+    if (openEditor) {
+      editingMark = mark;
+      panel = 'mark';
+    }
+    showToast(created ? 'マークしました' : 'すでにマークしてあります');
+  }
+
+  /** 今の AB リピートの範囲をマークする（リピートは続けたまま） */
+  function markAB() {
+    const ab = loop.ab;
+    if (!ab || !transcript) return;
+    void markWords([transcript.wordForAPoint(ab.start), transcript.wordForBPoint(ab.end)]);
+  }
+
+  async function sendSelection() {
+    const text = selText;
+    clearSelection();
+    const msg = await sendToClaude(text);
+    if (msg) showToast(msg);
+  }
+
+  // ---- マーク箇所の連続再生 ----
+  async function preparePlaylist(ids: string[]) {
+    const found = (await db.marks.bulkGet(ids)).filter((m): m is Mark => !!m && m.episodeId === id);
+    if (!found.length) return;
+    found.sort((a, b) => a.start - b.start);
+    playlist = { marks: found, index: 0, settings: loadPlaylistSettings(), waiting: false };
+    startPlaylistItem(false);
+    showToast(`${found.length} 箇所を連続再生します（▶ で開始）`);
+  }
+
+  function startPlaylistItem(play: boolean) {
+    if (!playlist) return;
+    const m = playlist.marks[playlist.index];
+    const { repeat, gapSec, padSec } = playlist.settings;
+    const dur = transcript?.duration ?? Infinity;
+    loop.clear();
+    loop.setAB({ start: Math.max(0, m.start - padSec), end: Math.min(dur, m.end + padSec), repeatCount: repeat, gapSec });
+    engine.seek(loop.ab!.start + timingOffset);
+    view?.resumeFollow();
+    if (play) void engine.play();
+  }
+
+  function nextInPlaylist() {
+    if (!playlist) return;
+    if (playlist.index + 1 >= playlist.marks.length) {
+      engine.pause();
+      showToast('マーク箇所の連続再生が終わりました');
+      playlist = null;
+      return;
+    }
+    playlist.index++;
+    const gap = playlist.settings.gapSec;
+    // 箇所と箇所の間にも無音をはさむ（画面オフ中は iOS が再開を拒否することがあるので省く）
+    if (gap > 0 && document.visibilityState === 'visible') {
+      engine.pause();
+      playlist.waiting = true;
+      playlistTimer = setTimeout(() => {
+        playlistTimer = null;
+        if (!playlist) return;
+        playlist.waiting = false;
+        startPlaylistItem(true);
+      }, gap * 1000);
+    } else {
+      startPlaylistItem(true);
+    }
+  }
+
+  function stepPlaylist(dir: -1 | 1) {
+    if (!playlist) return;
+    playlist.index = Math.min(Math.max(0, playlist.index + dir), playlist.marks.length - 1);
+    if (playlistTimer) clearTimeout(playlistTimer);
+    playlist.waiting = false;
+    startPlaylistItem(engine.playing);
+  }
+
+  function stopPlaylist(releaseAB = true) {
+    if (!playlist) return;
+    if (playlistTimer) clearTimeout(playlistTimer);
+    playlist = null;
+    if (releaseAB) loop.release('ab');
+  }
+
   function onRangeReleased(r: ActiveRange) {
+    if (playlist && r.kind === 'ab') return nextInPlaylist();
     showToast(`${r.kind === 'ab' ? 'AB リピート' : '区間'}を ${r.repeatCount} 回再生しました`);
     if (panel === r.kind) panel = 'none';
   }
@@ -455,6 +592,7 @@
   <header>
     <button class="icon-btn" aria-label="一覧に戻る" onclick={() => router.go('#/')}><Icon name="chevron-left" /></button>
     <h1>{episode?.title ?? ''}</h1>
+    <button class="icon-btn" aria-label="マーク一覧" onclick={() => router.go(`#/marks/${id}`)}><Icon name="bookmark" /></button>
     {#if hasJa}
       <button class="icon-btn ja-btn" class:active={showJa} aria-label="日本語訳の表示" onclick={toggleJa}>訳</button>
     {/if}
@@ -477,16 +615,26 @@
       {#if toast}
         <div class="toast" role="status">{toast}</div>
       {/if}
-      {#if selWords}
+      {#if selWords || selText}
         <!-- 長押しで選択したときの操作バー（コピーは iOS 標準のメニューから） -->
         <div class="selbar">
-          <button onclick={() => onSelectionAction('sentenceAB')}><Icon name="repeat" />この文でAB</button>
-          <button onclick={() => onSelectionAction('rangeAB')}><Icon name="repeat" />選択範囲でAB</button>
-          {#if pendingSecStart == null}
-            <button onclick={() => onSelectionAction('secStart')}>区間の始まり</button>
-          {:else}
-            <button class="accent" onclick={() => onSelectionAction('secEnd')}>区間の終わり</button>
+          {#if selWords}
+            <div class="selrow">
+              <button onclick={() => onSelectionAction('sentenceAB')}><Icon name="repeat" />この文でAB</button>
+              <button onclick={() => onSelectionAction('rangeAB')}><Icon name="repeat" />選択範囲でAB</button>
+              {#if pendingSecStart == null}
+                <button onclick={() => onSelectionAction('secStart')}>区間の始まり</button>
+              {:else}
+                <button class="accent" onclick={() => onSelectionAction('secEnd')}>区間の終わり</button>
+              {/if}
+            </div>
           {/if}
+          <div class="selrow">
+            {#if selWords}
+              <button onclick={() => { const w = selWords!; clearSelection(); void markWords(w); }}><Icon name="marker" />マーク</button>
+            {/if}
+            <button onclick={sendSelection}><Icon name="send" />Claudeに送る</button>
+          </div>
         </div>
       {:else if pendingSecStart != null}
         <div class="pending">
@@ -546,8 +694,21 @@
           }}
           onSave={() => saveRange(panel as RangeKind)} />
       </div>
+    {:else if panel === 'mark' && editingMark}
+      <div class="panel">
+        {#key editingMark.id}
+          <MarkEditor mark={editingMark} onClose={() => { panel = 'none'; editingMark = null; }} onMessage={showToast} />
+        {/key}
+      </div>
     {:else if panel === 'settings'}
       <div class="panel">
+        <div class="setting">
+          <div>
+            <div class="label">AB リピート開始時に自動でマーク</div>
+            <div class="hint">繰り返した箇所が、そのままマーク一覧にたまります</div>
+          </div>
+          <button class="pill" class:on={autoMarkAB} onclick={() => setAutoMark(!autoMarkAB)}>{autoMarkAB ? 'オン' : 'オフ'}</button>
+        </div>
         <div class="setting">
           <div>
             <div class="label">ハイライトのずれ補正</div>
@@ -562,7 +723,22 @@
       </div>
     {/if}
 
-    {#each loop.stack as r (r.kind)}
+    {#if playlist}
+      {@const pl = playlist}
+      <div class="rangebar playlist">
+        <button class="icon-btn rb-x" aria-label="前の箇所" onclick={() => stepPlaylist(-1)} disabled={pl.index === 0}><Icon name="prevSentence" /></button>
+        <div class="rb-main static">
+          <span class="rb-tag">マーク</span>
+          <span class="rb-time">{pl.index + 1}/{pl.marks.length}</span>
+          <span class="rb-count">{pl.waiting || loop.waiting ? '間隔…' : `${(loop.ab?.played ?? 0) + 1}/${pl.settings.repeat}回`}</span>
+          <span class="rb-name">{pl.marks[pl.index].text}</span>
+        </div>
+        <button class="icon-btn rb-x" aria-label="次の箇所" onclick={() => stepPlaylist(1)} disabled={pl.index >= pl.marks.length - 1}><Icon name="nextSentence" /></button>
+        <button class="icon-btn rb-x" aria-label="連続再生をやめる" onclick={() => stopPlaylist()}><Icon name="close" /></button>
+      </div>
+    {/if}
+
+    {#each playlist ? [] : loop.stack as r (r.kind)}
       <div class="rangebar" class:ab={r.kind === 'ab'}>
         <button class="rb-main" class:open={panel === r.kind} onclick={() => togglePanel(r.kind)}>
           <span class="rb-tag">{r.kind === 'ab' ? 'AB' : '区間'}</span>
@@ -573,6 +749,9 @@
           {#if r.name}<span class="rb-name">{r.name}</span>{/if}
           <span class="rb-edit">{panel === r.kind ? '閉じる' : '調整'}</span>
         </button>
+        {#if r.kind === 'ab'}
+          <button class="icon-btn rb-x" aria-label="この範囲をマーク" onclick={markAB}><Icon name="marker" /></button>
+        {/if}
         <button class="icon-btn rb-x" aria-label={r.kind === 'ab' ? 'ABリピートを解除' : '区間を解除'} onclick={() => loop.release(r.kind)}><Icon name="close" /></button>
       </div>
     {/each}
@@ -691,11 +870,21 @@
     font-size: 13px;
   }
   .selbar {
-    display: flex;
+    display: grid;
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: 14px;
     overflow: hidden;
+  }
+  .selrow {
+    display: flex;
+  }
+  .selrow + .selrow {
+    border-top: 1px solid var(--line);
+  }
+  .selrow button {
+    flex: 1;
+    justify-content: center;
   }
   .selbar button {
     display: flex;
@@ -705,7 +894,7 @@
     font-size: 13px;
     white-space: nowrap;
   }
-  .selbar button + button {
+  .selrow button + button {
     border-left: 1px solid var(--line);
   }
   .selbar button:active {
@@ -784,6 +973,15 @@
   }
   .rangebar.ab .rb-edit {
     color: #8ab8ff;
+  }
+  .rangebar.playlist {
+    background: rgba(255, 158, 203, 0.14);
+  }
+  .rangebar.playlist .rb-tag {
+    color: #ff9ecb;
+  }
+  .rb-main.static {
+    padding: 6px 4px;
   }
   .rb-x {
     width: 36px;

@@ -38,6 +38,7 @@ export class TranscriptView {
   private marked: Record<'in-ab' | 'in-sec', [number, number] | null> = { 'in-ab': null, 'in-sec': null };
   /** 範囲の端に付ける目印（A・B・区間の始まり／終わり）→ 単語番号 */
   private pins = new Map<string, number>();
+  private markedWords = new Set<number>();
   private offset = 0;
   private cleanup: (() => void)[] = [];
 
@@ -137,6 +138,15 @@ export class TranscriptView {
       return preferNext ? sent.firstWord : sent.lastWord;
     }
     return null;
+  }
+
+  /** マークした単語に下線を付ける（単語番号の範囲の一覧） */
+  setMarks(ranges: [number, number][]): void {
+    const next = new Set<number>();
+    for (const [a, b] of ranges) for (let i = a; i <= b; i++) next.add(i);
+    for (const i of this.markedWords) if (!next.has(i)) this.wordEls[i]?.classList.remove('mk');
+    for (const i of next) if (!this.markedWords.has(i)) this.wordEls[i]?.classList.add('mk');
+    this.markedWords = next;
   }
 
   /** 区間の始まりだけ決めて、終わりを待っている状態の目印 */

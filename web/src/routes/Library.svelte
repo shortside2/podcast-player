@@ -5,6 +5,8 @@
   import { db, deleteEpisode, type Episode } from '../lib/db/db';
   import { formatBytes, formatDate, formatTime } from '../lib/format';
   import { importFiles } from '../lib/import/importEpisodes';
+  import { exportBackup, importBackup } from '../lib/backup';
+  import { saveFile } from '../lib/share';
   import { isIOS, isStandalone } from '../lib/platform';
   import { buildLabel } from '../lib/pwa';
   import { router } from '../lib/router.svelte';
@@ -12,6 +14,8 @@
   const episodes = liveQuery(() => db.episodes.orderBy('createdAt').reverse().toArray());
 
   let fileInput: HTMLInputElement;
+  let backupInput: HTMLInputElement;
+  const markCount = liveQuery(() => db.marks.filter((m) => !m.mastered).count());
   let busy = $state(false);
   let messages = $state<string[]>([]);
   let storage = $state<{ usage: number; quota: number; persisted: boolean } | null>(null);
@@ -51,6 +55,20 @@
     }
   }
 
+  async function backup() {
+    const { name, text, counts } = await exportBackup();
+    await saveFile(name, text);
+    messages = [`バックアップを書き出しました（${counts}）`];
+  }
+
+  async function restore(e: Event) {
+    const input = e.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    messages = await importBackup(await file.text());
+  }
+
   async function remove(ep: Episode) {
     if (!confirm(`「${ep.title}」を削除しますか？\n音声・スクリプト・この回のマークや範囲もすべて消えます。`)) return;
     await deleteEpisode(ep.id);
@@ -61,6 +79,7 @@
 <div class="page">
   <header>
     <h1>ListenLoop</h1>
+    <button class="pill" onclick={() => router.go('#/marks')}><Icon name="bookmark" />マーク{$markCount ? ` ${$markCount}` : ''}</button>
     <button class="pill primary" onclick={() => fileInput.click()} disabled={busy}>
       <Icon name="import" />{busy ? '取り込み中…' : '取り込む'}
     </button>
@@ -114,6 +133,16 @@
     {/each}
   </ul>
 
+  <section class="backup">
+    <h2>バックアップ</h2>
+    <p>範囲・マーク・メモを 1 つのファイルに書き出します。iPhone の容量が足りなくなると保存データが消されることがあるので、ときどき書き出しておくと安心です（音声とスクリプトは含みません）。</p>
+    <div class="row">
+      <button class="pill" onclick={backup}>書き出す</button>
+      <button class="pill" onclick={() => backupInput.click()}>読み込む</button>
+      <input bind:this={backupInput} type="file" hidden onchange={restore} />
+    </div>
+  </section>
+
   {#if storage}
     <footer>
       使用量 {formatBytes(storage.usage)}
@@ -134,11 +163,12 @@
   header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    gap: 8px;
     padding: 12px 0 16px;
   }
   h1 {
-    font-size: 28px;
+    flex: 1;
+    font-size: 26px;
     margin: 0;
     letter-spacing: -0.01em;
   }
@@ -221,6 +251,24 @@
   }
   .del {
     color: var(--text-faint);
+  }
+  .backup {
+    margin-top: 28px;
+    font-size: 13px;
+    color: var(--text-dim);
+    line-height: 1.6;
+  }
+  .backup h2 {
+    font-size: 14px;
+    color: var(--text);
+    margin: 0 0 4px;
+  }
+  .backup p {
+    margin: 0 0 8px;
+  }
+  .backup .row {
+    display: flex;
+    gap: 8px;
   }
   footer.ver {
     margin-top: 6px;

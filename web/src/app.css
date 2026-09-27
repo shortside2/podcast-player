@@ -80,6 +80,7 @@ button:disabled {
   border-radius: 18px;
   background: var(--surface-2);
   font-size: 14px;
+  white-space: nowrap;
 }
 
 .pill.primary {
@@ -203,6 +204,14 @@ input[type='range'] {
 /* AB リピートの範囲は文字色で示す（背景を付けると単語ごとに四角く区切れて読みにくい） */
 .transcript .w.in-ab {
   color: #a9c9ff;
+}
+
+/* マークした単語（下線） */
+.transcript .w.mk {
+  text-decoration: underline;
+  text-decoration-color: #ff9ecb;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
 }
 
 /* 範囲の端の目印（A・B・区間の始まり／終わり） */
