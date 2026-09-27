@@ -51,8 +51,9 @@
     view = new TranscriptView(scroller, content, transcript, {
       onWordTap: (i) => {
         const w = transcript!.words[i];
+        // 先に「画面を動かさない」と伝えてからシークする
+        view?.resumeFollow('none');
         engine.seek(w.start + timingOffset - PREROLL);
-        view?.resumeFollow();
         if (!engine.playing) void engine.play();
       },
       onFollowChange: (f) => (following = f),
@@ -180,7 +181,7 @@
 
   <footer>
     {#if !following}
-      <button class="pill primary follow" onclick={() => view?.resumeFollow()}>
+      <button class="pill primary follow" onclick={() => view?.resumeFollow('always')}>
         <Icon name="locate" />現在位置に戻る
       </button>
     {/if}

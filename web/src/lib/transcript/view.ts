@@ -8,10 +8,14 @@ export interface TranscriptViewOptions {
 // 段落の区切り: 話者が変わる / 文の間の無音がこれ以上 / 文がこれ以上たまった
 const PARAGRAPH_PAUSE_SEC = 1.5;
 const PARAGRAPH_MAX_SENTENCES = 6;
-// 現在の単語がこの範囲（画面高さに対する割合）から外れたらスクロールする
-const FOLLOW_TOP = 0.15;
-const FOLLOW_BOTTOM = 0.6;
-const FOLLOW_TARGET = 0.3;
+// 現在の単語がこの範囲（画面高さに対する割合）から外れたときだけスクロールする。
+// 範囲を広めにとって、読んでいる途中で画面が動く回数を減らす
+const FOLLOW_TOP = 0.08;
+const FOLLOW_BOTTOM = 0.8;
+// スクロールしたあと、現在の単語を置く位置
+const FOLLOW_TARGET = 0.25;
+// これより遠い移動は、なめらかに動かすと時間がかかりすぎるため瞬時に移動する（画面の高さの倍数）
+const SMOOTH_LIMIT_SCREENS = 6;
 
 /**
  * スクリプトの表示を担当する。Svelte を通さず DOM を直接操作する。
@@ -26,6 +30,7 @@ export class TranscriptView {
   private curWord = -2;
   private curSentence = -2;
   private following = true;
+  private skipScrollOnce = false;
   private offset = 0;
   private cleanup: (() => void)[] = [];
 
@@ -50,9 +55,9 @@ export class TranscriptView {
     const w = this.transcript.wordAt(t);
     if (w === this.curWord) return;
     const s = w >= 0 ? this.transcript.sentenceOfWord(w) : -1;
-    const bigJump = Math.abs(w - this.curWord) > 40;
     // 位置の読み取りは、クラスを書き換える「前」に行う（書き換え後に読むと、その場で再レイアウトが走って重くなる）
-    const needScroll = this.following && w >= 0 && (bigJump || this.isOutsideFollowBand(this.wordEls[w]));
+    const needScroll = this.following && !this.skipScrollOnce && w >= 0 && this.isOutsideFollowBand(this.wordEls[w]);
+    this.skipScrollOnce = false;
 
     if (this.curWord >= 0) this.wordEls[this.curWord]?.classList.remove('cur');
     if (w >= 0) this.wordEls[w]?.classList.add('cur');
@@ -64,13 +69,21 @@ export class TranscriptView {
       this.curSentence = s;
     }
 
-    if (needScroll) this.follow(bigJump);
+    if (needScroll) this.follow();
   }
 
-  /** 「現在位置に戻る」 */
-  resumeFollow(): void {
+  /**
+   * 自動追従を再開する。
+   * - 'ifNeeded': 現在の単語が画面の見やすい範囲にあれば動かさない（シーク・前後の文など）
+   * - 'none'    : 画面は動かさない（単語をタップしたとき。タップした場所はすでに見えているため）
+   * - 'always'  : 必ず現在の単語の位置までスクロールする（「現在位置に戻る」）
+   */
+  resumeFollow(scroll: 'ifNeeded' | 'none' | 'always' = 'ifNeeded'): void {
     this.setFollowing(true);
-    this.follow(true);
+    if (scroll === 'none') this.skipScrollOnce = true;
+    if (scroll === 'always' || (scroll === 'ifNeeded' && this.isOutsideFollowBand(this.wordEls[this.curWord]))) {
+      this.follow();
+    }
   }
 
   get currentWord(): number {
@@ -171,15 +184,16 @@ export class TranscriptView {
     return y < box.height * FOLLOW_TOP || y > box.height * FOLLOW_BOTTOM;
   }
 
-  private follow(instant: boolean): void {
+  private follow(): void {
     const el = this.wordEls[this.curWord];
     if (!el) return;
     const box = this.scroller.getBoundingClientRect();
     const y = el.getBoundingClientRect().top - box.top;
     const top = this.scroller.scrollTop + y - box.height * FOLLOW_TARGET;
-    const far = Math.abs(y) > box.height * 2;
-    this.scroller.scrollTo({ top, behavior: instant || far ? 'auto' : 'smooth' });
-    if (far || instant) {
+    const far = Math.abs(y) > box.height * SMOOTH_LIMIT_SCREENS;
+    // 基本はなめらかにスクロールして、どこからどこへ移動したかを目で追えるようにする
+    this.scroller.scrollTo({ top, behavior: far ? 'auto' : 'smooth' });
+    if (far) {
       // 画面外の段落は高さが推定値なので、描画後にもう一度位置を合わせる
       requestAnimationFrame(() => requestAnimationFrame(() => {
         const y2 = el.getBoundingClientRect().top - this.scroller.getBoundingClientRect().top;
