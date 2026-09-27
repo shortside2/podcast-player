@@ -16,6 +16,8 @@ const FOLLOW_BOTTOM = 0.8;
 const FOLLOW_TARGET = 0.25;
 // これより遠い移動は、なめらかに動かすと時間がかかりすぎるため瞬時に移動する（画面の高さの倍数）
 const SMOOTH_LIMIT_SCREENS = 6;
+// 単語の開始のこれだけ手前から、その単語をハイライトする
+const LEAD_SEC = 0.08;
 
 /**
  * スクリプトの表示を担当する。Svelte を通さず DOM を直接操作する。
@@ -31,6 +33,7 @@ export class TranscriptView {
   private curSentence = -2;
   private following = true;
   private skipScrollOnce = false;
+  private marked: Record<'in-ab' | 'in-sec', [number, number] | null> = { 'in-ab': null, 'in-sec': null };
   private offset = 0;
   private cleanup: (() => void)[] = [];
 
@@ -52,7 +55,10 @@ export class TranscriptView {
   /** 毎フレーム呼ばれる。音声の時刻 → ハイライト更新 → 必要ならスクロール */
   update(audioTime: number): void {
     const t = audioTime - this.offset;
-    const w = this.transcript.wordAt(t);
+    let w = this.transcript.wordAt(t);
+    // 単語の直前（A 点や文頭へのジャンプは少し手前から再生する）では、これから始まる単語を光らせる
+    const next = this.transcript.words[w + 1];
+    if (next && next.start - t <= LEAD_SEC) w += 1;
     if (w === this.curWord) return;
     const s = w >= 0 ? this.transcript.sentenceOfWord(w) : -1;
     // 位置の読み取りは、クラスを書き換える「前」に行う（書き換え後に読むと、その場で再レイアウトが走って重くなる）
@@ -88,6 +94,45 @@ export class TranscriptView {
 
   get currentWord(): number {
     return this.curWord;
+  }
+
+  /**
+   * AB リピート・区間の範囲を色で示す。単語番号の範囲（両端を含む）か null。
+   * 区間を設定すると、区間の外の文字は薄く表示される。
+   */
+  setRanges(ab: [number, number] | null, section: [number, number] | null): void {
+    this.applyRangeClass('in-ab', ab);
+    this.applyRangeClass('in-sec', section);
+    this.content.classList.toggle('has-sec', section !== null);
+    this.content.classList.toggle('has-ab', ab !== null);
+  }
+
+  /** 画面内のノードから単語番号を求める（テキスト選択の端など） */
+  wordIndexOf(node: Node | null, preferNext: boolean): number | null {
+    if (!node || !this.content.contains(node)) return null;
+    const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+    const w = el?.closest<HTMLElement>('[data-w]');
+    if (w) return Number(w.dataset.w);
+    // 単語の間のスペースなど → 隣の単語
+    let sib: Node | null = node;
+    while (sib) {
+      sib = preferNext ? sib.nextSibling : sib.previousSibling;
+      if (sib instanceof HTMLElement && sib.dataset.w) return Number(sib.dataset.w);
+    }
+    const s = el?.closest<HTMLElement>('[data-s]');
+    if (s) {
+      const sent = this.transcript.sentences[Number(s.dataset.s)];
+      return preferNext ? sent.firstWord : sent.lastWord;
+    }
+    return null;
+  }
+
+  private applyRangeClass(cls: 'in-ab' | 'in-sec', next: [number, number] | null): void {
+    const prev = this.marked[cls];
+    if (prev && next && prev[0] === next[0] && prev[1] === next[1]) return;
+    if (prev) for (let i = prev[0]; i <= prev[1]; i++) this.wordEls[i]?.classList.remove(cls);
+    if (next) for (let i = next[0]; i <= next[1]; i++) this.wordEls[i]?.classList.add(cls);
+    this.marked[cls] = next;
   }
 
   destroy(): void {

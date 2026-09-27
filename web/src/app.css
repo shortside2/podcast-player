@@ -140,6 +140,16 @@ input[type='range'] {
   border-radius: 4px;
 }
 
+/* 区間を設定したら、区間の外を薄くする */
+.transcript.has-sec .w:not(.in-sec) {
+  opacity: 0.3;
+}
+
+/* AB リピートの範囲は文字色で示す（背景を付けると単語ごとに四角く区切れて読みにくい） */
+.transcript .w.in-ab {
+  color: #a9c9ff;
+}
+
 /* 背景色だけを変える（余白を足すと行が動いて重くなるため） */
 .transcript .w.cur {
   background: var(--accent);

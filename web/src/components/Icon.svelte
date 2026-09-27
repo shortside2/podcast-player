@@ -15,10 +15,13 @@
   {:else if name === 'fwd5'}
     <path d="M20 12a8 8 0 1 1-2.4-5.7" /><path d="M20 3v4h-4" />
     <text x="12" y="15.5" font-size="8" text-anchor="middle" fill="currentColor" stroke="none" font-family="-apple-system" font-weight="700">5</text>
-  {:else if name === 'prev'}
-    <path d="M6 5v14" /><path d="M18 5 9 12l9 7z" fill="currentColor" />
-  {:else if name === 'next'}
-    <path d="M18 5v14" /><path d="M6 5l9 7-9 7z" fill="currentColor" />
+  {:else if name === 'prevSentence'}
+    <!-- 5秒戻しと同じ形で、中の文字を「文」にする（1文ぶん戻る） -->
+    <path d="M4 12a8 8 0 1 0 2.4-5.7" /><path d="M4 3v4h4" />
+    <text x="12.5" y="15.6" font-size="8.5" text-anchor="middle" fill="currentColor" stroke="none" font-family="-apple-system, 'Hiragino Sans'" font-weight="700">文</text>
+  {:else if name === 'nextSentence'}
+    <path d="M20 12a8 8 0 1 1-2.4-5.7" /><path d="M20 3v4h-4" />
+    <text x="11.5" y="15.6" font-size="8.5" text-anchor="middle" fill="currentColor" stroke="none" font-family="-apple-system, 'Hiragino Sans'" font-weight="700">文</text>
   {:else if name === 'chevron-left'}
     <path d="M15 5l-7 7 7 7" />
   {:else if name === 'plus'}
@@ -33,6 +36,16 @@
     <circle cx="12" cy="12" r="3" /><path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
   {:else if name === 'import'}
     <path d="M12 3v12" /><path d="M7 10l5 5 5-5" /><path d="M4 17v3h16v-3" />
+  {:else if name === 'bookmark'}
+    <path d="M6 3h12v18l-6-4-6 4z" />
+  {:else if name === 'close'}
+    <path d="M6 6l12 12M18 6 6 18" />
+  {:else if name === 'repeat'}
+    <path d="M4 11V9a3 3 0 0 1 3-3h12" /><path d="M16 3l3 3-3 3" /><path d="M20 13v2a3 3 0 0 1-3 3H5" /><path d="M8 21l-3-3 3-3" />
+  {:else if name === 'list'}
+    <path d="M8 6h12M8 12h12M8 18h12" /><circle cx="4" cy="6" r="1" fill="currentColor" /><circle cx="4" cy="12" r="1" fill="currentColor" /><circle cx="4" cy="18" r="1" fill="currentColor" />
+  {:else if name === 'edit'}
+    <path d="M4 20h4L19 9l-4-4L4 16z" />
   {:else if name === 'trash'}
     <path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13" />
   {/if}

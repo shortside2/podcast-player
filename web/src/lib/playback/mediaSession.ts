@@ -5,6 +5,10 @@ export interface MediaSessionHandlers {
   artworkUrl: string;
   onPrevSentence: () => void;
   onNextSentence: () => void;
+  /** ±秒の移動（AB リピート中は範囲内に収めるため、呼び出し側で処理する） */
+  onSkip: (delta: number) => void;
+  /** 音声の時刻への移動 */
+  onSeekTo: (audioTime: number) => void;
 }
 
 const SKIP_SEC = 5;
@@ -28,10 +32,10 @@ export function connectMediaSession(engine: PlaybackEngine, h: MediaSessionHandl
   };
   set('play', () => void engine.play());
   set('pause', () => engine.pause());
-  set('seekbackward', (d) => engine.skip(-(d.seekOffset ?? SKIP_SEC)));
-  set('seekforward', (d) => engine.skip(d.seekOffset ?? SKIP_SEC));
+  set('seekbackward', (d) => h.onSkip(-(d.seekOffset ?? SKIP_SEC)));
+  set('seekforward', (d) => h.onSkip(d.seekOffset ?? SKIP_SEC));
   set('seekto', (d) => {
-    if (d.seekTime != null) engine.seek(d.seekTime);
+    if (d.seekTime != null) h.onSeekTo(d.seekTime);
   });
   set('previoustrack', h.onPrevSentence);
   set('nexttrack', h.onNextSentence);

@@ -1,5 +1,8 @@
 import type { TranscriptDoc, TranscriptSentence, TranscriptWord } from './types';
 
+const A_PREROLL = 0.05;
+const B_TAIL = 0.1;
+
 /**
  * 再生中に何度も引く「時刻 → 単語／文」の検索を速くするための索引。
  * 1万単語でも二分探索なので 1 回あたり十数回の比較で済む。
@@ -41,6 +44,42 @@ export class Transcript {
 
   sentenceOfWord(i: number): number {
     return this.wordToSentence[i] ?? -1;
+  }
+
+  /** 時刻 t 以降に始まる最初の単語 */
+  firstWordAtOrAfter(t: number): number {
+    return Math.min(lastAtOrBefore(this.wordStarts, t - 1e-6) + 1, this.words.length - 1);
+  }
+
+  /** [start, end) に始まる単語の番号の範囲。1語もなければ null */
+  wordRangeForTimes(start: number, end: number): [number, number] | null {
+    const a = this.firstWordAtOrAfter(start);
+    const b = this.wordAt(end - 1e-3);
+    if (a < 0 || b < a) return null;
+    return [a, b];
+  }
+
+  /** 単語 i から始める A 点（語頭が欠けないよう少し手前） */
+  aPointForWord(i: number): number {
+    return Math.max(0, this.words[i].start - A_PREROLL);
+  }
+
+  /** 単語 j で終わる B 点（語尾が切れないよう少し後ろ。ただし次の単語には食い込まない） */
+  bPointForWord(j: number): number {
+    const w = this.words[j];
+    const next = this.words[j + 1];
+    if (!next) return Math.min(this.duration, w.end + B_TAIL);
+    return Math.min(w.end + B_TAIL, Math.max(w.end, next.start));
+  }
+
+  /** A 点から、その範囲の最初の単語 */
+  wordForAPoint(a: number): number {
+    return this.firstWordAtOrAfter(a + 1e-3);
+  }
+
+  /** B 点から、その範囲の最後の単語 */
+  wordForBPoint(b: number): number {
+    return Math.max(0, this.wordAt(b - 1e-3));
   }
 }
 
