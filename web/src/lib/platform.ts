@@ -10,3 +10,10 @@ export function isIOS(): boolean {
   return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
+
+/** iOS のバージョン（例 18.4）。iOS でなければ null */
+export function iosVersion(): number | null {
+  const m = navigator.userAgent.match(/OS (\d+)_(\d+)/);
+  if (!isIOS() || !m) return null;
+  return Number(m[1]) + Number(m[2]) / 10;
+}

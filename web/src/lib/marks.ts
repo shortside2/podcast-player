@@ -17,32 +17,56 @@ export function buildMark(tx: Transcript, episodeId: string, [a, b]: [number, nu
     text: tx.words.slice(a, b + 1).map((w) => w.text).join(' '),
     note: '',
     tags: [],
+    rating: 0,
     mastered: false,
     createdAt: Date.now(),
   };
 }
 
-/** 同じ範囲のマークがすでにあればそれを返し、なければ保存する */
+/** 同じ範囲のマークがすでにあればそれを返し（ゴミ箱にあれば戻す）、なければ保存する */
 export async function addMark(m: Mark): Promise<{ mark: Mark; created: boolean }> {
   const same = await db.marks
     .where('episodeId')
     .equals(m.episodeId)
     .filter((x) => Math.abs(x.start - m.start) < 0.05 && Math.abs(x.end - m.end) < 0.05)
     .first();
-  if (same) return { mark: same, created: false };
+  if (same) {
+    if (same.deletedAt) {
+      await db.marks.update(same.id, { deletedAt: null });
+      return { mark: { ...same, deletedAt: null }, created: true };
+    }
+    return { mark: same, created: false };
+  }
   await db.marks.add(m);
   return { mark: m, created: true };
 }
 
 /** マークの種類。Claude に送るとき、どう分からなかったかを毎回書かなくて済むようにする */
 export const MARK_TAGS = [
-  { id: 'listen', label: '聞き取れない', hint: '音がつかめない・速い・つながって聞こえる' },
-  { id: 'unknown', label: '知らない表現', hint: '単語・イディオム・スラングを知らない' },
-  { id: 'meaning', label: '意味がつかめない', hint: '単語は分かるのに、文の構造や言い回しで意味がすっと入らない' },
-  { id: 'use', label: '使いたい表現', hint: '言い回しを覚えて自分でも使いたい' },
+  { id: 'listen', label: '聞き取れない', hint: '音がつかめない・速い・つながって聞こえる', color: '#5aa9ff' },
+  { id: 'unknown', label: '知らない表現', hint: '単語・イディオム・スラングを知らない', color: '#ffae42' },
+  { id: 'meaning', label: '意味がつかめない', hint: '単語は分かるのに、文の構造や言い回しで意味がすっと入らない', color: '#b58cff' },
+  { id: 'use', label: '使いたい表現', hint: '言い回しを覚えて自分でも使いたい', color: '#4cd08a' },
 ] as const;
 
 export const TAG_LABEL: Record<string, string> = Object.fromEntries(MARK_TAGS.map((t) => [t.id, t.label]));
+export const TAG_COLOR: Record<string, string> = Object.fromEntries(MARK_TAGS.map((t) => [t.id, t.color]));
+/** タグが付いていないマークの色 */
+export const UNTAGGED_COLOR = '#ff7eb6';
+
+/** マークの色（最初に付けたタグの色） */
+export function markColor(m: Mark): string {
+  return TAG_COLOR[m.tags?.[0] ?? ''] ?? UNTAGGED_COLOR;
+}
+
+/** 16 進の色に透明度を付ける（#rrggbb → rgba） */
+export function withAlpha(hex: string, alpha: number): string {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+/** ゴミ箱に入っていないマーク */
+export const isLive = (m: Mark) => !m.deletedAt;
 
 /**
  * Claude に送るテキスト。装飾はせず、選んだ内容をそのまま出す。

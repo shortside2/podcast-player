@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './Icon.svelte';
+  import { dialog } from '../lib/dialog.svelte';
   import { formatTimePrecise, parseTime } from '../lib/format';
   import type { LoopController, RangeKind } from '../lib/playback/loop.svelte';
   import type { Transcript } from '../lib/transcript/transcript';
@@ -74,13 +75,13 @@
     else setB(range.end + delta);
   }
 
-  function typeTime() {
+  async function typeTime() {
     if (!range) return;
     const cur = target === 'A' ? range.start : range.end;
-    const text = prompt(`${target} の時刻（例 1:02.5）`, formatTimePrecise(cur));
+    const text = await dialog.prompt(`${target === 'A' ? (kind === 'ab' ? 'A' : '始まり') : kind === 'ab' ? 'B' : '終わり'} の時刻`, formatTimePrecise(cur), { message: '例 1:02.5' });
     if (text == null) return;
     const t = parseTime(text);
-    if (t == null) return alert('時刻を読み取れませんでした（例 1:02.5）');
+    if (t == null) return dialog.alert('時刻を読み取れませんでした', '例 1:02.5 のように入力してください');
     if (target === 'A') setA(t);
     else setB(t);
   }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Dialog from './components/Dialog.svelte';
   import { router } from './lib/router.svelte';
   import Library from './routes/Library.svelte';
   import Marks from './routes/Marks.svelte';
@@ -16,3 +17,5 @@
 {:else}
   <Library />
 {/if}
+
+<Dialog />

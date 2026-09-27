@@ -53,8 +53,12 @@ export interface Mark {
   note: string;
   /** マークの種類（MARK_TAGS の id）。複数付けられる */
   tags?: string[];
+  /** 評価（星 0〜5） */
+  rating?: number;
   mastered: boolean;
   createdAt: number;
+  /** ゴミ箱に入れた日時（入っていなければ undefined / null） */
+  deletedAt?: number | null;
 }
 
 export interface Recording {

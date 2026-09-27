@@ -30,6 +30,7 @@ const LEAD_SEC = 0.08;
  */
 export class TranscriptView {
   private wordEls: HTMLElement[] = [];
+  private spaceEls: HTMLElement[] = [];
   private sentenceEls: HTMLElement[] = [];
   private curWord = -2;
   private curSentence = -2;
@@ -38,7 +39,7 @@ export class TranscriptView {
   private marked: Record<'in-ab' | 'in-sec' | 'sel', [number, number] | null> = { 'in-ab': null, 'in-sec': null, sel: null };
   /** 範囲の端に付ける目印（A・B・区間の始まり／終わり）→ 単語番号 */
   private pins = new Map<string, number>();
-  private markedWords = new Set<number>();
+  private markedEls: HTMLElement[] = [];
   private offset = 0;
   private cleanup: (() => void)[] = [];
 
@@ -118,35 +119,101 @@ export class TranscriptView {
     this.content.classList.toggle('has-ab', ab !== null);
   }
 
-  /** 画面内のノードから単語番号を求める（テキスト選択の端など） */
-  wordIndexOf(node: Node | null, preferNext: boolean): number | null {
-    if (!node || !this.content.contains(node)) return null;
+  /**
+   * 選択範囲の端（Range の start / end）から単語番号を求める。
+   * 「前の単語の最後の文字の直後」から始まる選択を前の単語に含めてしまわないよう、
+   * 文字の位置（offset）まで見て判定する。
+   */
+  wordAtBoundary(node: Node, offset: number, isStart: boolean): number | null {
+    if (!this.content.contains(node)) return null;
     const el = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
     // 日本語訳や見出しの中の選択は対象外（コピーは iOS 標準のメニューでできる）
     if (el?.closest('.ja, .topic')) return null;
-    const w = el?.closest<HTMLElement>('[data-w]');
-    if (w) return Number(w.dataset.w);
-    // 単語の間のスペースなど → 隣の単語
-    let sib: Node | null = node;
-    while (sib) {
-      sib = preferNext ? sib.nextSibling : sib.previousSibling;
-      if (sib instanceof HTMLElement && sib.dataset.w) return Number(sib.dataset.w);
+    if (node.nodeType === Node.TEXT_NODE) {
+      const w = el?.closest<HTMLElement>('[data-w]');
+      if (w) {
+        const i = Number(w.dataset.w);
+        const len = node.textContent?.length ?? 0;
+        if (isStart && offset >= len) return this.wordAfter(w);
+        if (!isStart && offset === 0) return this.wordBefore(w);
+        return i;
+      }
+      // スペースなど単語の外 → 始まりなら次の単語、終わりなら前の単語
+      return isStart ? this.wordAfter(node) : this.wordBefore(node);
     }
-    const s = el?.closest<HTMLElement>('[data-s]');
-    if (s) {
-      const sent = this.transcript.sentences[Number(s.dataset.s)];
-      return preferNext ? sent.firstWord : sent.lastWord;
-    }
-    return null;
+    // 要素の子の「offset 番目の手前」が境目
+    const child = node.childNodes[offset] ?? null;
+    if (isStart) return child ? this.wordAtOrAfter(child) : this.wordAfter(node);
+    const prev = offset > 0 ? node.childNodes[offset - 1] : null;
+    return prev ? this.wordAtOrBefore(prev) : this.wordBefore(node);
   }
 
-  /** マークした単語に下線を付ける（単語番号の範囲の一覧） */
-  setMarks(ranges: [number, number][]): void {
-    const next = new Set<number>();
-    for (const [a, b] of ranges) for (let i = a; i <= b; i++) next.add(i);
-    for (const i of this.markedWords) if (!next.has(i)) this.wordEls[i]?.classList.remove('mk');
-    for (const i of next) if (!this.markedWords.has(i)) this.wordEls[i]?.classList.add('mk');
-    this.markedWords = next;
+  private walker(from: Node): TreeWalker {
+    const tw = document.createTreeWalker(this.content, NodeFilter.SHOW_ELEMENT, {
+      acceptNode: (n) => ((n as HTMLElement).dataset?.w !== undefined ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP),
+    });
+    tw.currentNode = from;
+    return tw;
+  }
+
+  private wordAfter(from: Node): number | null {
+    const n = this.walker(from).nextNode() as HTMLElement | null;
+    return n ? Number(n.dataset.w) : null;
+  }
+
+  private wordBefore(from: Node): number | null {
+    const tw = this.walker(from);
+    let n = tw.previousNode() as HTMLElement | null;
+    // previousNode は祖先もたどるので、自分を含む単語は飛ばす
+    while (n && n.contains(from)) n = tw.previousNode() as HTMLElement | null;
+    return n ? Number(n.dataset.w) : null;
+  }
+
+  private wordAtOrAfter(n: Node): number | null {
+    const el = n instanceof HTMLElement ? n : null;
+    if (el?.dataset.w !== undefined) return Number(el.dataset.w);
+    const inner = el?.querySelector<HTMLElement>('[data-w]');
+    return inner ? Number(inner.dataset.w) : this.wordAfter(n);
+  }
+
+  private wordAtOrBefore(n: Node): number | null {
+    const el = n instanceof HTMLElement ? n : null;
+    if (el?.dataset.w !== undefined) return Number(el.dataset.w);
+    const all = el?.querySelectorAll<HTMLElement>('[data-w]');
+    if (all && all.length) return Number(all[all.length - 1].dataset.w);
+    return this.wordBefore(n);
+  }
+
+  /**
+   * マークした単語にマーカーを引く。color はマークの種類ごとの色。
+   * 範囲が重なるときは、段（level）を変えて少し上下にずらして両方見えるようにする。
+   */
+  setMarks(items: { range: [number, number]; color: string }[]): void {
+    for (const el of this.markedEls) {
+      el.classList.remove('mk');
+      el.style.removeProperty('--mk0');
+      el.style.removeProperty('--mk1');
+      el.style.removeProperty('--mk2');
+    }
+    this.markedEls = [];
+    const sorted = items.slice().sort((x, y) => x.range[0] - y.range[0] || y.range[1] - x.range[1]);
+    const levelEnds: number[] = [];
+    for (const { range: [a, b], color } of sorted) {
+      let level = levelEnds.findIndex((end) => end < a);
+      if (level === -1) level = levelEnds.length;
+      level = Math.min(level, 2);
+      levelEnds[level] = Math.max(levelEnds[level] ?? -1, b);
+      for (let i = a; i <= b; i++) {
+        // 単語の間のスペースにも引いて、マーカーが途切れないようにする
+        const els = i < b ? [this.wordEls[i], this.spaceEls[i]] : [this.wordEls[i]];
+        for (const el of els) {
+          if (!el) continue;
+          el.classList.add('mk');
+          el.style.setProperty(`--mk${level}`, color);
+          this.markedEls.push(el);
+        }
+      }
+    }
   }
 
   /** 区間の始まりだけ決めて、終わりを待っている状態の目印 */
@@ -204,6 +271,7 @@ export class TranscriptView {
     const { words, sentences, doc } = this.transcript;
     const frag = document.createDocumentFragment();
     this.wordEls = new Array(words.length);
+    this.spaceEls = new Array(words.length);
     this.sentenceEls = new Array(sentences.length);
 
     // 話題の見出しを入れる位置（単語番号 → 話題番号）
@@ -286,7 +354,12 @@ export class TranscriptView {
         w.dataset.w = String(i);
         w.textContent = words[i].text;
         this.wordEls[i] = w;
-        s.append(w, ' ');
+        // 単語の後ろのスペースも要素にしておく（マーカーを単語の間でも途切れさせないため）
+        const sp = document.createElement('span');
+        sp.className = 'sp';
+        sp.textContent = ' ';
+        this.spaceEls[i] = sp;
+        s.append(w, sp);
       }
       this.sentenceEls[si] = s;
       p!.append(s);

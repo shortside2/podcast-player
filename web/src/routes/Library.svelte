@@ -2,6 +2,7 @@
   import { liveQuery } from 'dexie';
   import { onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
+  import { dialog } from '../lib/dialog.svelte';
   import { db, deleteEpisode, type Episode } from '../lib/db/db';
   import { formatBytes, formatDate, formatTime } from '../lib/format';
   import { importFiles } from '../lib/import/importEpisodes';
@@ -15,7 +16,7 @@
 
   let fileInput: HTMLInputElement;
   let backupInput: HTMLInputElement;
-  const markCount = liveQuery(() => db.marks.filter((m) => !m.mastered).count());
+  const markCount = liveQuery(() => db.marks.filter((m) => !m.mastered && !m.deletedAt).count());
   let busy = $state(false);
   let messages = $state<string[]>([]);
   let storage = $state<{ usage: number; quota: number; persisted: boolean } | null>(null);
@@ -70,7 +71,12 @@
   }
 
   async function remove(ep: Episode) {
-    if (!confirm(`「${ep.title}」を削除しますか？\n音声・スクリプト・この回のマークや範囲もすべて消えます。`)) return;
+    const ok = await dialog.confirm(`「${ep.title}」を削除しますか？`, {
+      message: '音声・スクリプト・この回のマークや範囲もすべて消えます。',
+      okLabel: '削除',
+      danger: true,
+    });
+    if (!ok) return;
     await deleteEpisode(ep.id);
     void refreshStorage();
   }

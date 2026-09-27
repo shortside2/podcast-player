@@ -1,6 +1,7 @@
 <script lang="ts">
   import { liveQuery } from 'dexie';
   import Icon from './Icon.svelte';
+  import { dialog } from '../lib/dialog.svelte';
   import { db, type SavedRange } from '../lib/db/db';
   import { formatTime, formatTimePrecise } from '../lib/format';
   import type { TranscriptTopic } from '../lib/transcript/types';
@@ -37,15 +38,15 @@
   });
 
   async function rename(r: SavedRange) {
-    const name = prompt('名前', r.name);
+    const name = await dialog.prompt('名前', r.name);
     if (name == null || !name.trim()) return;
     await db.ranges.update(r.id, { name: name.trim() });
   }
 
   async function remove(r: SavedRange) {
     const children = r.kind === 'section' ? await db.ranges.where('parentId').equals(r.id).count() : 0;
-    const extra = children ? `\n（中の AB リピート ${children} 件は「区間なし」に移ります）` : '';
-    if (!confirm(`「${r.name}」を削除しますか？${extra}`)) return;
+    const extra = children ? `中の AB リピート ${children} 件は「区間なし」に移ります。` : undefined;
+    if (!(await dialog.confirm(`「${r.name}」を削除しますか？`, { message: extra, okLabel: '削除', danger: true }))) return;
     await db.transaction('rw', db.ranges, async () => {
       if (children) await db.ranges.where('parentId').equals(r.id).modify({ parentId: null });
       await db.ranges.delete(r.id);

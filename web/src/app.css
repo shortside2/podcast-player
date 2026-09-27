@@ -206,12 +206,18 @@ input[type='range'] {
   color: #a9c9ff;
 }
 
-/* マークした単語（下線） */
-.transcript .w.mk {
-  text-decoration: underline;
-  text-decoration-color: #ff9ecb;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 4px;
+/* マークした単語（蛍光マーカー）。重なるときは段をずらして両方見えるようにする
+   1 本目は文字全体、2 本目は下寄り、3 本目は上寄りに引く */
+.transcript .mk {
+  background-image:
+    linear-gradient(to bottom, transparent 58%, var(--mk1, transparent) 58%, var(--mk1, transparent) 100%),
+    linear-gradient(to bottom, var(--mk2, transparent) 0%, var(--mk2, transparent) 42%, transparent 42%),
+    linear-gradient(to bottom, transparent 10%, var(--mk0, transparent) 10%, var(--mk0, transparent) 90%, transparent 90%);
+  color: var(--text);
+}
+/* 角を丸めるとマーカーが単語ごとに途切れて見えるので、マーク中は四角にする */
+.transcript .w.mk:not(.cur) {
+  border-radius: 0;
 }
 
 /* 範囲の端の目印（A・B・区間の始まり／終わり） */

@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import Icon from '../components/Icon.svelte';
+  import { dialog } from '../lib/dialog.svelte';
   import RangeEditor from '../components/RangeEditor.svelte';
   import RangesSheet from '../components/RangesSheet.svelte';
   import MarkEditor from '../components/MarkEditor.svelte';
   import { liveQuery } from 'dexie';
-  import { addMark, buildMark, loadPlaylistSettings } from '../lib/marks';
+  import { addMark, buildMark, isLive, loadPlaylistSettings, markColor, withAlpha } from '../lib/marks';
   import { MarkPlayer } from '../lib/playback/markPlayer.svelte';
-  import { sendToClaude } from '../lib/share';
   import { db, newId, type Episode, type Mark, type SavedRange } from '../lib/db/db';
   import { formatTime, formatTimePrecise } from '../lib/format';
   import { PlaybackEngine } from '../lib/playback/engine.svelte';
@@ -43,8 +43,6 @@
   let scrubValue = $state(0);
   /** 長押しで選択している単語の範囲 */
   let selWords = $state<[number, number] | null>(null);
-  /** 選択中の文字列（日本語訳を選んだときも入る） */
-  let selText = $state('');
   /** メモを編集中のマーク */
   let editingMark = $state<Mark | null>(null);
   let autoMarkAB = $state(readFlag(AUTO_MARK_KEY));
@@ -164,7 +162,12 @@
     const list = $episodeMarks;
     const tx = transcript;
     if (!list || !tx || !view) return;
-    view.setMarks(list.filter((m) => !m.mastered).map((m) => tx.wordRangeForTimes(m.start, m.end)).filter((r): r is [number, number] => !!r));
+    view.setMarks(
+      list
+        .filter((m) => isLive(m) && !m.mastered)
+        .map((m) => ({ range: tx.wordRangeForTimes(m.start, m.end), color: withAlpha(markColor(m), 0.42) }))
+        .filter((x): x is { range: [number, number]; color: string } => !!x.range),
+    );
   });
 
   onDestroy(() => {
@@ -260,14 +263,12 @@
     const sel = window.getSelection();
     if (!view || !sel || sel.isCollapsed || sel.rangeCount === 0 || !content?.contains(sel.anchorNode)) {
       selWords = null;
-      selText = '';
       view?.setSelection(null);
       return;
     }
-    selText = sel.toString().replace(/\s+/g, ' ').trim();
     const r = sel.getRangeAt(0);
-    const a = view.wordIndexOf(r.startContainer, true);
-    const b = view.wordIndexOf(r.endContainer, false);
+    const a = view.wordAtBoundary(r.startContainer, r.startOffset, true);
+    const b = view.wordAtBoundary(r.endContainer, r.endOffset, false);
     selWords = a != null && b != null && b >= a ? [a, b] : null;
     view.setSelection(selWords);
   }
@@ -276,7 +277,6 @@
     window.getSelection()?.removeAllRanges();
     view?.setSelection(null);
     selWords = null;
-    selText = '';
   }
 
   /** 選んだ単語を、それを含む文全体に広げる */
@@ -413,7 +413,7 @@
       showToast('上書き保存しました');
       return;
     }
-    const name = prompt(kind === 'ab' ? 'AB リピートの名前' : '区間の名前', defaultName(r));
+    const name = await dialog.prompt(kind === 'ab' ? 'AB リピートの名前' : '区間の名前', defaultName(r), { okLabel: '保存' });
     if (name == null) return;
     const saved: SavedRange = {
       id: newId(),
@@ -480,12 +480,6 @@
     void markWords([transcript.wordForAPoint(ab.start), transcript.wordForBPoint(ab.end)]);
   }
 
-  async function sendSelection() {
-    const text = selText;
-    clearSelection();
-    const msg = await sendToClaude(text);
-    if (msg) showToast(msg);
-  }
 
   // ---- マーク箇所の連続再生 ----
   async function preparePlaylist(ids: string[]) {
@@ -568,7 +562,7 @@
       {#if toast}
         <div class="toast" role="status">{toast}</div>
       {/if}
-      {#if selWords || selText}
+      {#if selWords}
         <!-- 長押しで選択したときの操作バー（コピーは iOS 標準のメニューから） -->
         <div class="selbar">
           {#if selWords}
@@ -582,12 +576,11 @@
               {/if}
             </div>
           {/if}
-          <div class="selrow">
-            {#if selWords}
+          {#if selWords}
+            <div class="selrow">
               <button onclick={() => { const w = selWords!; clearSelection(); void markWords(w); }}><Icon name="marker" />マーク</button>
-            {/if}
-            <button onclick={sendSelection}><Icon name="send" />Claudeに送る</button>
-          </div>
+            </div>
+          {/if}
         </div>
       {:else if pendingSecStart != null}
         <div class="pending">
@@ -650,7 +643,7 @@
     {:else if panel === 'mark' && editingMark}
       <div class="panel">
         {#key editingMark.id}
-          <MarkEditor mark={editingMark} onClose={() => { panel = 'none'; editingMark = null; }} onMessage={showToast} />
+          <MarkEditor mark={editingMark} {transcript} onClose={() => { panel = 'none'; editingMark = null; }} onMessage={showToast} />
         {/key}
       </div>
     {:else if panel === 'settings'}

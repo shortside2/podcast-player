@@ -1,4 +1,4 @@
-import { isIOS } from '../platform';
+import { iosVersion } from '../platform';
 
 const PREF_KEY = 'listenloop.wakeLock';
 
@@ -6,8 +6,12 @@ const PREF_KEY = 'listenloop.wakeLock';
  * 画面が自動で消えないようにする。
  *
  * 1. Screen Wake Lock API（使える環境ならこれ）
- * 2. iPhone では、ホーム画面アプリで Wake Lock が効かない iOS の版があるため、
- *    音の出ない小さな動画をループ再生し続ける方法も併用する（動画再生中は画面が消えない）
+ * 2. iOS 18.4 より前の iPhone では、ホーム画面アプリで Wake Lock が効かないため、
+ *    音の出ない小さな動画をループ再生し続ける方法を使う（動画再生中は画面が消えない）
+ *
+ * 動画は、アプリが裏に回る（画面が消える・ロックする）ときには止める。
+ * イヤホン接続時に、iOS が動画を「再生中のメディア」と見なして、ロック時に音声まで
+ * 一緒に止めてしまうことがあるため。
  */
 class WakeLockController {
   enabled = $state(false);
@@ -24,8 +28,14 @@ class WakeLockController {
     }
     if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && this.enabled) void this.acquire();
+        if (document.visibilityState === 'visible') {
+          if (this.enabled) void this.acquire();
+        } else {
+          this.video?.pause();
+        }
       });
+      // ロック直前に確実に止めるため、pagehide でも止める
+      window.addEventListener('pagehide', () => this.video?.pause());
     }
   }
 
@@ -42,7 +52,8 @@ class WakeLockController {
   }
 
   async acquire(): Promise<void> {
-    const useVideo = isIOS() || !('wakeLock' in navigator);
+    const v = iosVersion();
+    const useVideo = (v !== null && v < 18.4) || !('wakeLock' in navigator);
     if (useVideo) this.startVideo();
     if ('wakeLock' in navigator && !this.sentinel) {
       try {
@@ -67,6 +78,7 @@ class WakeLockController {
   }
 
   private startVideo(): void {
+    if (document.visibilityState !== 'visible') return;
     if (!this.video) {
       const v = document.createElement('video');
       v.src = new URL('keepawake.mp4', document.baseURI).href;
