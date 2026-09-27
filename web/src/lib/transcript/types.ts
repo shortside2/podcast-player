@@ -64,6 +64,10 @@ export const SUPPORTED_SCHEMA_VERSIONS = [1];
 export function validateTranscript(doc: unknown): string | null {
   const d = doc as Partial<TranscriptDoc>;
   if (!d || typeof d !== 'object') return 'JSON の形式が正しくありません';
+  const raw = doc as Record<string, unknown>;
+  if (Array.isArray(raw.segments) && Array.isArray(raw.sections) && !Array.isArray(raw.words)) {
+    return 'これはチャットで作った「訳・話題」のファイルです。Mac で add_bilingual.py を実行してスクリプトに取り込んでから、スクリプトの .json（mp3 と同じ名前のもの）を選んでください';
+  }
   if (!SUPPORTED_SCHEMA_VERSIONS.includes(d.schemaVersion as number)) {
     return `未対応のスキーマバージョンです（${String(d.schemaVersion)}）`;
   }
