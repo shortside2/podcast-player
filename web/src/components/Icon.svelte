@@ -16,12 +16,9 @@
     <path d="M20 12a8 8 0 1 1-2.4-5.7" /><path d="M20 3v4h-4" />
     <text x="12" y="15.5" font-size="8" text-anchor="middle" fill="currentColor" stroke="none" font-family="-apple-system" font-weight="700">5</text>
   {:else if name === 'prevSentence'}
-    <!-- 5秒戻しと同じ形で、中の文字を「文」にする（1文ぶん戻る） -->
-    <path d="M4 12a8 8 0 1 0 2.4-5.7" /><path d="M4 3v4h4" />
-    <text x="12.5" y="15.6" font-size="8.5" text-anchor="middle" fill="currentColor" stroke="none" font-family="-apple-system, 'Hiragino Sans'" font-weight="700">文</text>
+    <path d="M6 5v14" /><path d="M18 5 9 12l9 7z" fill="currentColor" />
   {:else if name === 'nextSentence'}
-    <path d="M20 12a8 8 0 1 1-2.4-5.7" /><path d="M20 3v4h-4" />
-    <text x="11.5" y="15.6" font-size="8.5" text-anchor="middle" fill="currentColor" stroke="none" font-family="-apple-system, 'Hiragino Sans'" font-weight="700">文</text>
+    <path d="M18 5v14" /><path d="M6 5l9 7-9 7z" fill="currentColor" />
   {:else if name === 'chevron-left'}
     <path d="M15 5l-7 7 7 7" />
   {:else if name === 'plus'}
