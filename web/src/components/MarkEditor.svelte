@@ -2,7 +2,7 @@
   import Icon from './Icon.svelte';
   import { db, type Mark } from '../lib/db/db';
   import { formatTimePrecise } from '../lib/format';
-  import { KIND_LABEL, marksToText } from '../lib/marks';
+  import { KIND_LABEL, MARK_TAGS, marksToText } from '../lib/marks';
   import { sendToClaude } from '../lib/share';
 
   let {
@@ -22,6 +22,12 @@
   const m = mark;
   let note = $state(m.note);
   let mastered = $state(m.mastered);
+  let tags = $state<string[]>([...(m.tags ?? [])]);
+
+  async function toggleTag(id: string) {
+    tags = tags.includes(id) ? tags.filter((t) => t !== id) : [...tags, id];
+    await db.marks.update(m.id, { tags: [...tags] });
+  }
   let savedNote = m.note;
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -45,7 +51,7 @@
   }
 
   async function send() {
-    const msg = await sendToClaude(marksToText([{ ...m, note }]));
+    const msg = await sendToClaude(marksToText([{ ...m, note, tags }]));
     if (msg) onMessage(msg);
     void saveNote();
   }
@@ -71,6 +77,11 @@
     <button class="done" onclick={close}>完了</button>
   </div>
   <p class="text">{m.text}</p>
+  <div class="tags">
+    {#each MARK_TAGS as t (t.id)}
+      <button class="tag" class:on={tags.includes(t.id)} title={t.hint} onclick={() => toggleTag(t.id)}>{t.label}</button>
+    {/each}
+  </div>
   <textarea
     bind:value={note}
     oninput={onNoteInput}
@@ -116,6 +127,24 @@
     line-height: 1.5;
     max-height: 5.5em;
     overflow-y: auto;
+  }
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .tag {
+    height: 30px;
+    padding: 0 10px;
+    border-radius: 15px;
+    border: 1px solid var(--line);
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .tag.on {
+    background: rgba(255, 158, 203, 0.18);
+    border-color: #ff9ecb;
+    color: #ffc2de;
   }
   textarea {
     width: 100%;

@@ -264,6 +264,13 @@ input[type='range'] {
   box-shadow: 0 0 0 2px var(--accent);
 }
 
+/* 長押しで選択している単語（iOS の選択表示が出ないときの代わり） */
+.transcript .w.sel {
+  background: rgba(120, 170, 255, 0.35);
+  color: var(--text);
+  box-shadow: 0 0 0 2px rgba(120, 170, 255, 0.35);
+}
+
 ::selection {
   background: rgba(120, 170, 255, 0.45);
 }

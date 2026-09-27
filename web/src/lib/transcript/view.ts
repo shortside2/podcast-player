@@ -35,7 +35,7 @@ export class TranscriptView {
   private curSentence = -2;
   private following = true;
   private skipScrollOnce = false;
-  private marked: Record<'in-ab' | 'in-sec', [number, number] | null> = { 'in-ab': null, 'in-sec': null };
+  private marked: Record<'in-ab' | 'in-sec' | 'sel', [number, number] | null> = { 'in-ab': null, 'in-sec': null, sel: null };
   /** 範囲の端に付ける目印（A・B・区間の始まり／終わり）→ 単語番号 */
   private pins = new Map<string, number>();
   private markedWords = new Set<number>();
@@ -176,7 +176,15 @@ export class TranscriptView {
     }
   }
 
-  private applyRangeClass(cls: 'in-ab' | 'in-sec', next: [number, number] | null): void {
+  /**
+   * 長押しで選択した単語に色を付ける。iOS は選択の解除を何度か行うと
+   * 選択範囲の色を表示しなくなることがあるため、アプリ側でも示す
+   */
+  setSelection(range: [number, number] | null): void {
+    this.applyRangeClass('sel', range);
+  }
+
+  private applyRangeClass(cls: 'in-ab' | 'in-sec' | 'sel', next: [number, number] | null): void {
     const prev = this.marked[cls];
     if (prev && next && prev[0] === next[0] && prev[1] === next[1]) return;
     if (prev) for (let i = prev[0]; i <= prev[1]; i++) this.wordEls[i]?.classList.remove(cls);

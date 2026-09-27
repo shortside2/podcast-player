@@ -5,7 +5,8 @@
   import RangesSheet from '../components/RangesSheet.svelte';
   import MarkEditor from '../components/MarkEditor.svelte';
   import { liveQuery } from 'dexie';
-  import { addMark, buildMark, loadPlaylistSettings, type PlaylistSettings } from '../lib/marks';
+  import { addMark, buildMark, loadPlaylistSettings } from '../lib/marks';
+  import { MarkPlayer } from '../lib/playback/markPlayer.svelte';
   import { sendToClaude } from '../lib/share';
   import { db, newId, type Episode, type Mark, type SavedRange } from '../lib/db/db';
   import { formatTime, formatTimePrecise } from '../lib/format';
@@ -48,8 +49,9 @@
   let editingMark = $state<Mark | null>(null);
   let autoMarkAB = $state(readFlag(AUTO_MARK_KEY));
   /** マーク箇所の連続再生 */
-  let playlist = $state<{ marks: Mark[]; index: number; settings: PlaylistSettings; waiting: boolean } | null>(null);
-  let playlistTimer: ReturnType<typeof setTimeout> | null = null;
+  const markPlayer = new MarkPlayer(engine, loop, () => transcript, () => timingOffset, () =>
+    showToast('マーク箇所の連続再生が終わりました'),
+  );
   // svelte-ignore state_referenced_locally
   const episodeMarks = liveQuery(() => db.marks.where('episodeId').equals(id).toArray());
   let toast = $state<string | null>(null);
@@ -166,7 +168,7 @@
   });
 
   onDestroy(() => {
-    if (playlistTimer) clearTimeout(playlistTimer);
+    markPlayer.destroy();
     void savePosition();
     disposers.forEach((d) => d());
     loop.destroy();
@@ -259,6 +261,7 @@
     if (!view || !sel || sel.isCollapsed || sel.rangeCount === 0 || !content?.contains(sel.anchorNode)) {
       selWords = null;
       selText = '';
+      view?.setSelection(null);
       return;
     }
     selText = sel.toString().replace(/\s+/g, ' ').trim();
@@ -266,10 +269,12 @@
     const a = view.wordIndexOf(r.startContainer, true);
     const b = view.wordIndexOf(r.endContainer, false);
     selWords = a != null && b != null && b >= a ? [a, b] : null;
+    view.setSelection(selWords);
   }
 
   function clearSelection() {
     window.getSelection()?.removeAllRanges();
+    view?.setSelection(null);
     selWords = null;
     selText = '';
   }
@@ -282,7 +287,7 @@
 
   function startAB([a, b]: [number, number]) {
     const tx = transcript!;
-    stopPlaylist(false);
+    markPlayer.stop();
     loop.setAB({ start: tx.aPointForWord(a), end: tx.bPointForWord(b), ...abDefaults() });
     // 設定で「AB 開始時に自動でマーク」がオンなら、そのままマーク一覧にも入れる
     if (autoMarkAB) void markWords([a, b], false);
@@ -487,65 +492,13 @@
     const found = (await db.marks.bulkGet(ids)).filter((m): m is Mark => !!m && m.episodeId === id);
     if (!found.length) return;
     found.sort((a, b) => a.start - b.start);
-    playlist = { marks: found, index: 0, settings: loadPlaylistSettings(), waiting: false };
-    startPlaylistItem(false);
+    markPlayer.start(found, loadPlaylistSettings(), 0, false);
+    view?.resumeFollow();
     showToast(`${found.length} 箇所を連続再生します（▶ で開始）`);
   }
 
-  function startPlaylistItem(play: boolean) {
-    if (!playlist) return;
-    const m = playlist.marks[playlist.index];
-    const { repeat, gapSec, padSec } = playlist.settings;
-    const dur = transcript?.duration ?? Infinity;
-    loop.clear();
-    loop.setAB({ start: Math.max(0, m.start - padSec), end: Math.min(dur, m.end + padSec), repeatCount: repeat, gapSec });
-    engine.seek(loop.ab!.start + timingOffset);
-    view?.resumeFollow();
-    if (play) void engine.play();
-  }
-
-  function nextInPlaylist() {
-    if (!playlist) return;
-    if (playlist.index + 1 >= playlist.marks.length) {
-      engine.pause();
-      showToast('マーク箇所の連続再生が終わりました');
-      playlist = null;
-      return;
-    }
-    playlist.index++;
-    const gap = playlist.settings.gapSec;
-    // 箇所と箇所の間にも無音をはさむ（画面オフ中は iOS が再開を拒否することがあるので省く）
-    if (gap > 0 && document.visibilityState === 'visible') {
-      engine.pause();
-      playlist.waiting = true;
-      playlistTimer = setTimeout(() => {
-        playlistTimer = null;
-        if (!playlist) return;
-        playlist.waiting = false;
-        startPlaylistItem(true);
-      }, gap * 1000);
-    } else {
-      startPlaylistItem(true);
-    }
-  }
-
-  function stepPlaylist(dir: -1 | 1) {
-    if (!playlist) return;
-    playlist.index = Math.min(Math.max(0, playlist.index + dir), playlist.marks.length - 1);
-    if (playlistTimer) clearTimeout(playlistTimer);
-    playlist.waiting = false;
-    startPlaylistItem(engine.playing);
-  }
-
-  function stopPlaylist(releaseAB = true) {
-    if (!playlist) return;
-    if (playlistTimer) clearTimeout(playlistTimer);
-    playlist = null;
-    if (releaseAB) loop.release('ab');
-  }
-
   function onRangeReleased(r: ActiveRange) {
-    if (playlist && r.kind === 'ab') return nextInPlaylist();
+    if (markPlayer.active && r.kind === 'ab') return markPlayer.onRepeatDone();
     showToast(`${r.kind === 'ab' ? 'AB リピート' : '区間'}を ${r.repeatCount} 回再生しました`);
     if (panel === r.kind) panel = 'none';
   }
@@ -723,22 +676,21 @@
       </div>
     {/if}
 
-    {#if playlist}
-      {@const pl = playlist}
+    {#if markPlayer.active}
       <div class="rangebar playlist">
-        <button class="icon-btn rb-x" aria-label="前の箇所" onclick={() => stepPlaylist(-1)} disabled={pl.index === 0}><Icon name="prevSentence" /></button>
+        <button class="icon-btn rb-x" aria-label="前の箇所" onclick={() => markPlayer.step(-1)} disabled={markPlayer.index === 0}><Icon name="prevSentence" /></button>
         <div class="rb-main static">
           <span class="rb-tag">マーク</span>
-          <span class="rb-time">{pl.index + 1}/{pl.marks.length}</span>
-          <span class="rb-count">{pl.waiting || loop.waiting ? '間隔…' : `${(loop.ab?.played ?? 0) + 1}/${pl.settings.repeat}回`}</span>
-          <span class="rb-name">{pl.marks[pl.index].text}</span>
+          <span class="rb-time">{markPlayer.index + 1}/{markPlayer.queue.length}</span>
+          <span class="rb-count">{markPlayer.waiting || loop.waiting ? '間隔…' : `${(loop.ab?.played ?? 0) + 1}/${markPlayer.settings.repeat}回`}</span>
+          <span class="rb-name">{markPlayer.current?.text}</span>
         </div>
-        <button class="icon-btn rb-x" aria-label="次の箇所" onclick={() => stepPlaylist(1)} disabled={pl.index >= pl.marks.length - 1}><Icon name="nextSentence" /></button>
-        <button class="icon-btn rb-x" aria-label="連続再生をやめる" onclick={() => stopPlaylist()}><Icon name="close" /></button>
+        <button class="icon-btn rb-x" aria-label="次の箇所" onclick={() => markPlayer.step(1)} disabled={markPlayer.index >= markPlayer.queue.length - 1}><Icon name="nextSentence" /></button>
+        <button class="icon-btn rb-x" aria-label="連続再生をやめる" onclick={() => markPlayer.stop()}><Icon name="close" /></button>
       </div>
     {/if}
 
-    {#each playlist ? [] : loop.stack as r (r.kind)}
+    {#each markPlayer.active ? [] : loop.stack as r (r.kind)}
       <div class="rangebar" class:ab={r.kind === 'ab'}>
         <button class="rb-main" class:open={panel === r.kind} onclick={() => togglePanel(r.kind)}>
           <span class="rb-tag">{r.kind === 'ab' ? 'AB' : '区間'}</span>

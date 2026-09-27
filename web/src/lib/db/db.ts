@@ -51,6 +51,8 @@ export interface Mark {
   lastWord: number;
   text: string;
   note: string;
+  /** マークの種類（MARK_TAGS の id）。複数付けられる */
+  tags?: string[];
   mastered: boolean;
   createdAt: number;
 }

@@ -1,10 +1,16 @@
 <script lang="ts">
   import { liveQuery } from 'dexie';
+  import { onDestroy, onMount } from 'svelte';
+  import { PlaybackEngine } from '../lib/playback/engine.svelte';
+  import { LoopController } from '../lib/playback/loop.svelte';
+  import { MarkPlayer } from '../lib/playback/markPlayer.svelte';
+  import { connectMediaSession } from '../lib/playback/mediaSession';
+  import { Transcript } from '../lib/transcript/transcript';
   import Icon from '../components/Icon.svelte';
   import MarkEditor from '../components/MarkEditor.svelte';
   import { db, type Episode, type Mark } from '../lib/db/db';
   import { formatTime } from '../lib/format';
-  import { KIND_LABEL, loadPlaylistSettings, marksToText, savePlaylistSettings } from '../lib/marks';
+  import { KIND_LABEL, MARK_TAGS, TAG_LABEL, loadPlaylistSettings, marksToText, savePlaylistSettings } from '../lib/marks';
   import { router } from '../lib/router.svelte';
   import { sendToClaude } from '../lib/share';
 
@@ -25,12 +31,95 @@
   let toast = $state<string | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let playlist = $state(loadPlaylistSettings());
+  /** 絞り込み: 'all' / タグの id / 'none'（タグなし） */
+  let tagFilter = $state<string>('all');
+
+  // ---- この画面の中での再生（全文に戻らずに聞く） ----
+  const engine = new PlaybackEngine();
+  const transcripts = new Map<string, Transcript>();
+  const offsets = new Map<string, number>();
+  let loadedEpisode: string | null = null;
+  const offsetOfCurrent = (): number => offsets.get(markPlayer.current?.episodeId ?? '') ?? 0;
+  const loop: LoopController = new LoopController(engine, offsetOfCurrent, (r) => {
+    if (r.kind === 'ab') markPlayer.onRepeatDone();
+  });
+  const markPlayer: MarkPlayer = new MarkPlayer(engine, loop, (m) => transcripts.get(m.episodeId) ?? null, offsetOfCurrent, () =>
+    showToast('最後まで再生しました'),
+  );
+  let disconnectMedia: (() => void) | null = null;
+
+  /** エピソードの音声とスクリプトを読み込む（すでに読み込んでいれば何もしない） */
+  async function ensureLoaded(epId: string): Promise<boolean> {
+    if (loadedEpisode === epId) return true;
+    const [ep, audio, tr] = await Promise.all([db.episodes.get(epId), db.audioBlobs.get(epId), db.transcripts.get(epId)]);
+    if (!ep || !audio) return false;
+    if (tr) transcripts.set(epId, new Transcript(tr.doc));
+    offsets.set(epId, ep.timingOffset);
+    engine.load(audio.blob, 0, ep.rate);
+    loadedEpisode = epId;
+    disconnectMedia?.();
+    disconnectMedia = connectMediaSession(engine, {
+      title: `${ep.title}（マーク）`,
+      artworkUrl: new URL('icon-512.png', document.baseURI).href,
+      onPrevSentence: () => markPlayer.step(-1),
+      onNextSentence: () => markPlayer.step(1),
+      onSkip: (d) => engine.skip(d),
+      onSeekTo: (t) => engine.seek(t),
+    });
+    return true;
+  }
+
+  onMount(() => {
+    // エピソード別の一覧なら、先に音声を読み込んでおく（▶ ですぐ再生できるように）
+    if (episodeId) void ensureLoaded(episodeId);
+  });
+
+  onDestroy(() => {
+    markPlayer.destroy();
+    loop.destroy();
+    disconnectMedia?.();
+    engine.unload();
+  });
+
+  /** マークを再生する（list の index 番目から） */
+  async function play(list: Mark[], index: number) {
+    if (!list.length) return;
+    const ep = list[index].episodeId;
+    const queue = list.filter((m) => m.episodeId === ep);
+    const ready = loadedEpisode === ep;
+    if (!ready && !(await ensureLoaded(ep))) return showToast('エピソードが見つかりません');
+    savePlaylistSettings(playlist);
+    markPlayer.start(queue, { ...playlist }, queue.indexOf(list[index]), true);
+    // 別のエピソードを読み込んだ直後は、iPhone が再生を止めることがある
+    if (!ready) setTimeout(() => { if (!engine.playing) showToast('もう一度 ▶ を押してください'); }, 1500);
+  }
+
+  function openInPlayer(m: Mark) {
+    markPlayer.stop();
+    engine.pause();
+    router.go(`#/episode/${m.episodeId}?t=${m.start.toFixed(2)}`);
+  }
+
+  async function copyAll() {
+    const list = groups.flatMap((g) => g.marks);
+    if (!list.length) return showToast('コピーするマークがありません');
+    try {
+      await navigator.clipboard.writeText(marksToText(list));
+      showToast(`${list.length} 件をコピーしました`);
+    } catch {
+      showToast('コピーできませんでした');
+    }
+  }
 
   const epMap = $derived(new Map(($episodes ?? []).map((e) => [e.id, e])));
 
   // エピソードごとにまとめ、エピソードの中は時刻順
   const groups = $derived.by(() => {
-    const list = ($marks ?? []).filter((m) => showMastered || !m.mastered);
+    const list = ($marks ?? []).filter(
+      (m) =>
+        (showMastered || !m.mastered) &&
+        (tagFilter === 'all' || (tagFilter === 'none' ? !(m.tags?.length) : m.tags?.includes(tagFilter))),
+    );
     const byEp = new Map<string, Mark[]>();
     for (const m of list) {
       if (!byEp.has(m.episodeId)) byEp.set(m.episodeId, []);
@@ -67,19 +156,6 @@
     if (msg) showToast(msg);
   }
 
-  function jump(m: Mark) {
-    router.go(`#/episode/${m.episodeId}?t=${m.start.toFixed(2)}`);
-  }
-
-  /** マーク箇所の連続再生（プレイヤーを開いて、▶ で開始） */
-  function playMarks(list: Mark[]) {
-    if (!list.length) return;
-    const ep = list[0].episodeId;
-    if (list.some((m) => m.episodeId !== ep)) return showToast('連続再生は 1 つのエピソードの中で行います');
-    savePlaylistSettings(playlist);
-    router.go(`#/episode/${ep}?play=${list.map((m) => m.id).join(',')}`);
-  }
-
   function setPlaylist(patch: Partial<typeof playlist>) {
     playlist = { ...playlist, ...patch };
     savePlaylistSettings(playlist);
@@ -90,7 +166,8 @@
   <header>
     <button class="icon-btn" aria-label="戻る" onclick={() => router.back(episodeId ? `#/episode/${episodeId}` : '#/')}><Icon name="chevron-left" /></button>
     <h1>{episodeId ? (epMap.get(episodeId)?.title ?? 'マーク') : 'すべてのマーク'}</h1>
-    <button class="pill" class:on={selecting} onclick={() => { selecting = !selecting; selected = new Set(); }}>{selecting ? '選択をやめる' : '選択'}</button>
+    <button class="pill" onclick={copyAll}>すべてコピー</button>
+    <button class="pill" class:on={selecting} onclick={() => { selecting = !selecting; selected = new Set(); }}>{selecting ? 'やめる' : '選択'}</button>
   </header>
 
   <div class="bar">
@@ -100,6 +177,14 @@
     <label class="toggle">
       <input type="checkbox" bind:checked={showMastered} />習得済みも表示{masteredCount ? `（${masteredCount}）` : ''}
     </label>
+  </div>
+
+  <div class="filters">
+    <button class="chip" class:on={tagFilter === 'all'} onclick={() => (tagFilter = 'all')}>すべて</button>
+    {#each MARK_TAGS as t (t.id)}
+      <button class="chip" class:on={tagFilter === t.id} onclick={() => (tagFilter = t.id)}>{t.label}</button>
+    {/each}
+    <button class="chip" class:on={tagFilter === 'none'} onclick={() => (tagFilter = 'none')}>タグなし</button>
   </div>
 
   <section class="settings">
@@ -120,11 +205,11 @@
     <section class="group">
       <div class="group-head">
         {#if !episodeId}<h2>{g.episode?.title ?? '（削除されたエピソード）'}</h2>{/if}
-        <button class="pill primary" onclick={() => playMarks(g.marks)}><Icon name="play" />この{g.marks.length}箇所を連続再生</button>
+        <button class="pill primary" onclick={() => play(g.marks, 0)}><Icon name="play" />この{g.marks.length}箇所を連続再生</button>
       </div>
       <ul>
         {#each g.marks as m (m.id)}
-          <li class:mastered={m.mastered} class:open={editing === m.id}>
+          <li class:mastered={m.mastered} class:open={editing === m.id} class:playing={markPlayer.current?.id === m.id}>
             {#if editing === m.id}
               <MarkEditor mark={m} onClose={() => (editing = null)} onMessage={showToast} />
             {:else}
@@ -137,10 +222,13 @@
                 <button class="body" onclick={() => (selecting ? toggleSelect(m.id) : (editing = m.id))}>
                   <span class="text">{m.text}</span>
                   {#if m.note}<span class="note">{m.note}</span>{/if}
-                  <span class="meta">{KIND_LABEL[m.kind]} · {formatTime(m.start)}{m.mastered ? ' · 習得済み' : ''}</span>
+                  <span class="meta">
+                    {#each m.tags ?? [] as t}<span class="tagl">{TAG_LABEL[t]}</span>{/each}
+                    {KIND_LABEL[m.kind]} · {formatTime(m.start)}{m.mastered ? ' · 習得済み' : ''}
+                  </span>
                 </button>
                 {#if !selecting}
-                  <button class="icon-btn go" aria-label="この位置へ" onclick={() => jump(m)}><Icon name="play" /></button>
+                  <button class="icon-btn go" aria-label="ここだけ再生" onclick={() => play([m], 0)}><Icon name="play" /></button>
                 {/if}
               </div>
             {/if}
@@ -150,14 +238,35 @@
     </section>
   {/each}
 
-  {#if selecting}
-    <div class="selbar">
-      <span>{selected.size} 件選択</span>
-      <button class="pill" onclick={() => (selected = new Set(groups.flatMap((g) => g.marks.map((m) => m.id))))}>すべて</button>
-      <button class="pill" onclick={() => playMarks(selectedMarks())} disabled={!selected.size}><Icon name="play" />連続再生</button>
-      <button class="pill primary" onclick={sendSelected} disabled={!selected.size}><Icon name="send" />Claudeに送る</button>
-    </div>
-  {/if}
+  <div class="bottom">
+    {#if markPlayer.active}
+      {@const cur = markPlayer.current}
+      <div class="mini">
+        <div class="mini-text">
+          <span class="mini-meta">
+            {markPlayer.index + 1}/{markPlayer.queue.length} ·
+            {markPlayer.waiting || loop.waiting ? '間隔…' : `${(loop.ab?.played ?? 0) + 1}/${markPlayer.settings.repeat}回`}
+          </span>
+          <span class="mini-body">{cur?.text}</span>
+        </div>
+        <div class="mini-ctl">
+          <button class="icon-btn" aria-label="前の箇所" onclick={() => markPlayer.step(-1)} disabled={markPlayer.index === 0}><Icon name="prevSentence" /></button>
+          <button class="icon-btn" aria-label={engine.playing ? '一時停止' : '再生'} onclick={() => engine.toggle()}><Icon name={engine.playing ? 'pause' : 'play'} /></button>
+          <button class="icon-btn" aria-label="次の箇所" onclick={() => markPlayer.step(1)} disabled={markPlayer.index >= markPlayer.queue.length - 1}><Icon name="nextSentence" /></button>
+          <button class="pill" onclick={() => cur && openInPlayer(cur)}>全文で開く</button>
+          <button class="icon-btn" aria-label="再生をやめる" onclick={() => { markPlayer.stop(); engine.pause(); }}><Icon name="close" /></button>
+        </div>
+      </div>
+    {/if}
+    {#if selecting}
+      <div class="selbar">
+        <span>{selected.size} 件選択</span>
+        <button class="pill" onclick={() => (selected = new Set(groups.flatMap((g) => g.marks.map((m) => m.id))))}>すべて</button>
+        <button class="pill" onclick={() => play(selectedMarks(), 0)} disabled={!selected.size}><Icon name="play" />連続再生</button>
+        <button class="pill primary" onclick={sendSelected} disabled={!selected.size}><Icon name="send" />送る</button>
+      </div>
+    {/if}
+  </div>
 
   {#if toast}<div class="toast" role="status">{toast}</div>{/if}
 </div>
@@ -167,7 +276,7 @@
     min-height: 100%;
     max-width: 720px;
     margin: 0 auto;
-    padding: calc(var(--safe-top) + 4px) 16px calc(var(--safe-bottom) + 96px);
+    padding: calc(var(--safe-top) + 4px) 16px calc(var(--safe-bottom) + 170px);
   }
   header {
     display: flex;
@@ -334,16 +443,76 @@
     width: 18px;
     height: 18px;
   }
-  .selbar {
+  .filters {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    margin-bottom: 10px;
+    scrollbar-width: none;
+  }
+  .filters .chip {
+    flex: none;
+    padding: 0 12px;
+  }
+  .tagl {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 6px;
+    border-radius: 8px;
+    background: rgba(255, 158, 203, 0.16);
+    color: #ffc2de;
+  }
+  li.playing {
+    background: rgba(255, 158, 203, 0.08);
+    border-radius: 8px;
+  }
+  .bottom {
     position: fixed;
     left: 0;
     right: 0;
     bottom: 0;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+    padding-bottom: var(--safe-bottom);
+  }
+  .bottom:empty {
+    display: none;
+  }
+  .mini {
+    padding: 8px 12px 4px;
+  }
+  .mini-text {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    min-width: 0;
+  }
+  .mini-meta {
+    flex: none;
+    font-size: 12px;
+    color: #ff9ecb;
+    font-variant-numeric: tabular-nums;
+  }
+  .mini-body {
+    font-family: var(--reading);
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .mini-ctl {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+  }
+  .mini-ctl .pill {
+    margin-left: auto;
+  }
+  .selbar {
     display: flex;
     align-items: center;
     gap: 6px;
-    padding: 10px 16px calc(var(--safe-bottom) + 10px);
-    background: var(--surface);
+    padding: 10px 16px;
     border-top: 1px solid var(--line);
     font-size: 13px;
   }
@@ -354,7 +523,7 @@
     position: fixed;
     left: 50%;
     transform: translateX(-50%);
-    bottom: calc(var(--safe-bottom) + 76px);
+    bottom: calc(var(--safe-bottom) + 150px);
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: 18px;

@@ -16,6 +16,7 @@ export function buildMark(tx: Transcript, episodeId: string, [a, b]: [number, nu
     lastWord: b,
     text: tx.words.slice(a, b + 1).map((w) => w.text).join(' '),
     note: '',
+    tags: [],
     mastered: false,
     createdAt: Date.now(),
   };
@@ -33,12 +34,29 @@ export async function addMark(m: Mark): Promise<{ mark: Mark; created: boolean }
   return { mark: m, created: true };
 }
 
+/** マークの種類。Claude に送るとき、どう分からなかったかを毎回書かなくて済むようにする */
+export const MARK_TAGS = [
+  { id: 'listen', label: '聞き取れない', hint: '音がつかめない・速い・つながって聞こえる' },
+  { id: 'unknown', label: '知らない表現', hint: '単語・イディオム・スラングを知らない' },
+  { id: 'meaning', label: '意味がつかめない', hint: '単語は分かるのに、文の構造や言い回しで意味がすっと入らない' },
+  { id: 'use', label: '使いたい表現', hint: '言い回しを覚えて自分でも使いたい' },
+] as const;
+
+export const TAG_LABEL: Record<string, string> = Object.fromEntries(MARK_TAGS.map((t) => [t.id, t.label]));
+
 /**
  * Claude に送るテキスト。装飾はせず、選んだ内容をそのまま出す。
- * メモがあれば次の行に続ける。複数のときは空行で区切る。
+ * 種類（タグ）があれば先頭に [聞き取れない] のように付け、メモがあれば次の行に続ける。
+ * 複数のときは空行で区切る。
  */
 export function marksToText(marks: Mark[]): string {
-  return marks.map((m) => (m.note.trim() ? `${m.text}\n${m.note.trim()}` : m.text)).join('\n\n');
+  return marks
+    .map((m) => {
+      const tags = (m.tags ?? []).map((t) => TAG_LABEL[t]).filter(Boolean);
+      const head = tags.length ? `[${tags.join('・')}] ${m.text}` : m.text;
+      return m.note.trim() ? `${head}\n${m.note.trim()}` : head;
+    })
+    .join('\n\n');
 }
 
 export const KIND_LABEL: Record<Mark['kind'], string> = { word: '単語', sentence: '文', range: '範囲' };
