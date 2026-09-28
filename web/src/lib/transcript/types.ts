@@ -24,6 +24,8 @@ export interface TranscriptParagraph {
   lastWord: number;
   speaker?: string | null;
   ja?: string | null;
+  /** 英文の文ごとの訳（文番号の範囲 → 訳）。あれば、今の文に対応する訳だけを強調できる */
+  jaSentences?: { firstSentence: number; lastSentence: number; text: string }[];
 }
 
 /** 話題。アプリでは見出しになり、タップするとその範囲が区間になる */

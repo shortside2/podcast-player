@@ -1,5 +1,11 @@
 # make_transcript（Mac 側ツール）
 
+> **おすすめ：Claude Code の podcast-prep スキルで一括処理**
+> Claude Code で「`~/…/episode.mp3` を ListenLoop の素材にして」と頼むと、
+> 文字起こし → 話者・段落・話題分け → 日本語訳 → 合体 → iCloud Drive › ListenLoop へのコピーまで自動で行います
+> （スキル本体: `~/.claude/skills/podcast-prep/SKILL.md`、処理の本体: `podcast_prep.py`）。
+> 以下は各ツールを個別に使う場合の説明です。
+
 ポッドキャストの音声から、次の 2 つを作ります。
 
 | 出力 | 中身 |
@@ -120,4 +126,17 @@ bilingual JSON の形（必要な項目）:
   "sections": [ { "id": 1, "title_en": "Introduction", "title_ja": "イントロダクション", "segment_ids": [7, 9] } ],
   "segments": [ { "id": 7, "start": "01:01:19;12", "end": "01:03:29;27", "speaker_id": "robert", "en": "…", "ja": "…" } ]
 }
+```
+
+## 一括処理（podcast_prep.py）
+
+podcast-prep スキルが内部で使うスクリプトです。手で動かす場合:
+
+```bash
+cd ~/"Documents/Claude Code/podcast-player/mac-tool"
+.venv/bin/python podcast_prep.py start  "…/episode.mp3"   # 文字起こし → episode_work/outline.txt
+# （episode_work/structure.json を書く: 話者・段落・話題）
+.venv/bin/python podcast_prep.py chunks "…/episode.mp3"   # 検査 → 翻訳用 chunk_XX.txt
+# （chunk_XX.ja.json を書く: 段落ごとの日本語訳）
+.venv/bin/python podcast_prep.py finish "…/episode.mp3"   # 合体 → episode.json 完成 → iCloud Drive › ListenLoop にコピー
 ```

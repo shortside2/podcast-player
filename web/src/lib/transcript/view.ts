@@ -330,14 +330,25 @@ export class TranscriptView {
 
     let sentencesInParagraph: number[] = [];
     const closeParagraph = () => {
-      const ja = paragraphs?.[pi]?.ja;
-      if (p && ja) {
+      const para = paragraphs?.[pi];
+      if (p && para?.ja) {
         const el = document.createElement('span');
         el.className = 'ja';
         el.lang = 'ja';
-        el.textContent = ja;
+        if (para.jaSentences?.length) {
+          // 文ごとの訳: 訳の部分ごとに要素を分け、対応する英文から引けるようにする
+          for (const u of para.jaSentences) {
+            const part = document.createElement('span');
+            part.className = 'jas';
+            part.textContent = u.text;
+            el.append(part);
+            for (let si = u.firstSentence; si <= u.lastSentence; si++) this.jaOfSentence[si] = part;
+          }
+        } else {
+          el.textContent = para.ja;
+          for (const si of sentencesInParagraph) this.jaOfSentence[si] = el;
+        }
         p.append(el);
-        for (const si of sentencesInParagraph) this.jaOfSentence[si] = el;
       }
       sentencesInParagraph = [];
     };
