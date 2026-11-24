@@ -205,6 +205,13 @@ input[type='range'] {
   border-radius: 4px;
 }
 
+/* 単語の間のスペース。折り返し位置のスペースは normal だと描画から消え、
+   iOS / Safari が「前の行の最後の単語＋行頭の単語」を 1 語とみなして一緒に選択してしまう。
+   pre-wrap なら行末にぶら下がるだけで残るので、単語の区切りとして扱われる */
+.transcript .sp {
+  white-space: pre-wrap;
+}
+
 /* 区間を設定したら、区間の外を薄くする */
 .transcript.has-sec .w:not(.in-sec) {
   opacity: 0.3;

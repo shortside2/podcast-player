@@ -281,6 +281,20 @@
     selected = next;
   }
 
+  /** 話題（グループ）の選択状態: 'all' すべて選択 / 'some' 一部 / 'none' なし */
+  function groupState(g: Group): 'all' | 'some' | 'none' {
+    const n = g.marks.reduce((c, m) => c + (selected.has(m.id) ? 1 : 0), 0);
+    return n === 0 ? 'none' : n === g.marks.length ? 'all' : 'some';
+  }
+
+  /** 見出しのタップ: すべて選ばれていれば解除、それ以外（一部・なし）ならすべて選ぶ */
+  function toggleGroup(g: Group) {
+    const next = new Set(selected);
+    if (groupState(g) === 'all') for (const m of g.marks) next.delete(m.id);
+    else for (const m of g.marks) next.add(m.id);
+    selected = next;
+  }
+
   function selectedMarks(): Mark[] {
     return allVisible.filter((m) => selected.has(m.id));
   }
@@ -404,8 +418,23 @@
       <section class="group">
         {#if g.title}<h2>{g.title}</h2>{/if}
         <div class="group-head">
-          <h3>{g.subtitle ?? ''}</h3>
-          <button class="pill primary small" onclick={() => play(g.marks, 0)}><Icon name="play" />{g.marks.length}箇所を連続再生</button>
+          {#if selecting}
+            {@const st = groupState(g)}
+            <button
+              class="group-sel"
+              aria-pressed={st === 'all' ? 'true' : st === 'some' ? 'mixed' : 'false'}
+              aria-label={`${g.subtitle ?? 'この話題'}の記録をまとめて${st === 'all' ? '選択解除' : '選択'}`}
+              onclick={() => toggleGroup(g)}>
+              <span class="check" class:on={st === 'all'} class:some={st === 'some'}>
+                {#if st === 'all'}<Icon name="check" />{:else if st === 'some'}<span class="dash"></span>{/if}
+              </span>
+              <h3>{g.subtitle ?? 'すべて'}</h3>
+              <span class="count">{g.marks.reduce((c, m) => c + (selected.has(m.id) ? 1 : 0), 0)}/{g.marks.length}</span>
+            </button>
+          {:else}
+            <h3>{g.subtitle ?? ''}</h3>
+            <button class="pill primary small" onclick={() => play(g.marks, 0)}><Icon name="play" />{g.marks.length}箇所を連続再生</button>
+          {/if}
         </div>
         <ul>
           {#each g.marks as m (m.id)}
@@ -498,13 +527,24 @@
     min-height: 100%;
     max-width: 720px;
     margin: 0 auto;
-    padding: calc(var(--safe-top) + 4px) 16px calc(var(--safe-bottom) + 170px);
+    padding: 0 16px calc(var(--safe-bottom) + 170px);
   }
+  /* 「コピー」「選択」はスクロールしても押せるよう上に固定する。
+     ノッチ・ステータスバーの分は header 自身の余白で避け、背景で下の一覧を隠す */
   header {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 4px 0 8px;
+    margin: 0 -16px;
+    padding: calc(var(--safe-top) + 8px) calc(16px + env(safe-area-inset-right, 0px)) 8px calc(16px + env(safe-area-inset-left, 0px));
+    background: var(--bg);
+    border-bottom: 1px solid var(--line);
+  }
+  header + * {
+    margin-top: 10px;
   }
   h1 {
     flex: 1;
@@ -630,6 +670,35 @@
   .check :global(svg) {
     width: 14px;
     height: 14px;
+  }
+  /* 一部だけ選ばれている話題 */
+  .check.some {
+    border-color: var(--accent);
+  }
+  .check .dash {
+    width: 10px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--accent);
+  }
+  /* 選択モードの話題の見出し（タップでその話題をまとめて選択／解除） */
+  .group-sel {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    text-align: left;
+  }
+  .group-sel h3 {
+    flex: 1;
+  }
+  .group-sel .count {
+    flex: none;
+    font-size: 12px;
+    color: var(--text-dim);
+    font-variant-numeric: tabular-nums;
   }
   .body {
     flex: 1;
