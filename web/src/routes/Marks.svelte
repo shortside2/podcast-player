@@ -15,7 +15,11 @@
     TAG_COLOR,
     TAG_LABEL,
     isLive,
+    loadAutoRegister,
     loadPlaylistSettings,
+    registerAfterCopy,
+    saveAutoRegister,
+    setRegistered,
     markColor,
     marksToText,
     savePlaylistSettings,
@@ -51,6 +55,10 @@
   let settingsOpen = $state(false);
   /** 絞り込み: 'all' / タグの id / 'none'（タグなし） */
   let tagFilter = $state<string>('all');
+  /** 絞り込み: すべて / 未登録 / 登録済み */
+  let regFilter = $state<'all' | 'unregistered' | 'registered'>('all');
+  /** コピーしたら自動で登録済みにする（既定オフ） */
+  let autoRegister = $state(loadAutoRegister());
   /** 並べ替え: 時刻順 / 評価の高い順 / 新しい順 */
   let sort = $state<'time' | 'rating' | 'new'>(saved.sort);
   /** まとめ方: 話題（章）ごと / まとめて */
@@ -172,10 +180,26 @@
     if (!list.length) return showToast('コピーする記録がありません');
     try {
       await navigator.clipboard.writeText(marksToText(list));
-      showToast(`${list.length} 件をコピーしました`);
     } catch {
       showToast('コピーできませんでした');
+      return;
     }
+    const n = await registerAfterCopy(list);
+    showToast(`${list.length} 件をコピーしました${n ? `（${n} 件を登録済みに）` : ''}`);
+  }
+
+  /** 選んだ記録の登録済みを付ける。すべて登録済みなら外す */
+  async function toggleRegisteredSelected() {
+    const list = selectedMarks();
+    if (!list.length) return;
+    const on = !list.every((m) => m.registered);
+    await setRegistered(list.map((m) => m.id), on);
+    showToast(on ? `${list.length} 件を登録済みにしました` : `${list.length} 件の登録済みを外しました`);
+  }
+
+  function setAutoRegister(on: boolean) {
+    autoRegister = on;
+    saveAutoRegister(on);
   }
 
   const epMap = $derived(new Map(($episodes ?? []).map((e) => [e.id, e])));
@@ -206,7 +230,8 @@
       (m) =>
         isLive(m) &&
         (tab === 'mastered' ? m.mastered : !m.mastered) &&
-        (tagFilter === 'all' || (tagFilter === 'none' ? !m.tags?.length : m.tags?.includes(tagFilter))),
+        (tagFilter === 'all' || (tagFilter === 'none' ? !m.tags?.length : m.tags?.includes(tagFilter))) &&
+        (regFilter === 'all' || (regFilter === 'registered') === !!m.registered),
     );
     const byEp = new Map<string, Mark[]>();
     for (const m of list) {
@@ -382,6 +407,11 @@
         <button class:on={sort === 'rating'} onclick={() => (sort = 'rating')}>評価順</button>
         <button class:on={sort === 'new'} onclick={() => (sort = 'new')}>新しい順</button>
       </div>
+      <div class="seg">
+        <button class:on={regFilter === 'all'} onclick={() => (regFilter = 'all')}>すべて</button>
+        <button class:on={regFilter === 'unregistered'} onclick={() => (regFilter = 'unregistered')}>未登録</button>
+        <button class:on={regFilter === 'registered'} onclick={() => (regFilter = 'registered')}>登録済み</button>
+      </div>
     </div>
 
     <div class="filters">
@@ -394,13 +424,15 @@
 
     <section class="settings">
       <button class="settings-head" onclick={() => (settingsOpen = !settingsOpen)}>
-        <span>連続再生の設定</span><span class="sum">{playlistSummary} {settingsOpen ? '▲' : '▼'}</span>
+        <span>設定</span><span class="sum">{playlistSummary}{autoRegister ? '・コピーで登録' : ''} {settingsOpen ? '▲' : '▼'}</span>
       </button>
       {#if settingsOpen}
         <div class="opt"><span>回数</span>{#each REPEATS as r}<button class="chip" class:on={playlist.repeat === r} onclick={() => setPlaylist({ repeat: r })}>{r}</button>{/each}</div>
         <div class="opt"><span>間隔</span>{#each GAPS as g}<button class="chip" class:on={playlist.gapSec === g} onclick={() => setPlaylist({ gapSec: g })}>{g}秒</button>{/each}</div>
         <div class="opt"><span>余白</span>{#each PADS as p}<button class="chip" class:on={playlist.padSec === p} onclick={() => setPlaylist({ padSec: p })}>{p}秒</button>{/each}</div>
         <p class="hint">各箇所を「回数」ずつ、「間隔」の無音をはさんで順番に再生します。「余白」は各箇所の前後に足す長さです（前後の単語には食い込みません）。</p>
+        <div class="opt wide"><span>コピーしたら登録済みにする</span><button class="chip" class:on={!autoRegister} onclick={() => setAutoRegister(false)}>オフ</button><button class="chip" class:on={autoRegister} onclick={() => setAutoRegister(true)}>オン</button></div>
+        <p class="hint">オンにすると、記録をコピーしたとき（1 件でも、まとめてでも）その記録に「登録済み」が付きます。</p>
       {/if}
     </section>
 
@@ -465,7 +497,8 @@
                     <span class="meta">
                       {#if m.rating}<Stars value={m.rating} />{/if}
                       {#each m.tags ?? [] as t}<span class="tagl" style:--c={TAG_COLOR[t]}>{TAG_LABEL[t]}</span>{/each}
-                      {KIND_LABEL[m.kind]} · {formatTime(m.start)}{m.mastered ? ' · 習得済み' : ''}
+                      {#if m.mastered}<span class="status mastered">習得済み</span>{:else if m.registered}<span class="status reg">登録済み</span>{/if}
+                      {KIND_LABEL[m.kind]} · {formatTime(m.start)}
                     </span>
                   </button>
                   {#if !selecting}
@@ -514,6 +547,7 @@
         <button class="pill" onclick={() => (selected = new Set(allVisible.map((m) => m.id)))}>すべて</button>
         <button class="pill" onclick={() => play(selectedMarks(), 0)} disabled={!selected.size}><Icon name="play" />再生</button>
         <button class="pill" onclick={() => copy(selectedMarks())} disabled={!selected.size}>コピー</button>
+        <button class="pill" onclick={toggleRegisteredSelected} disabled={!selected.size}>{selected.size && selectedMarks().every((m) => m.registered) ? '登録解除' : '登録'}</button>
         <button class="pill danger" aria-label="選んだ記録をゴミ箱へ" onclick={trashSelected} disabled={!selected.size}><Icon name="trash" />削除</button>
       </div>
     {/if}
@@ -813,6 +847,42 @@
   }
   .selbar span {
     margin-right: auto;
+    white-space: nowrap;
+  }
+  /* 幅の狭い iPhone（SE など）でも選択バーのボタンがはみ出さないようにする */
+  @media (max-width: 360px) {
+    .selbar {
+      gap: 4px;
+      padding: 10px 8px;
+    }
+    .selbar .pill {
+      padding: 0 7px;
+    }
+  }
+  /* 未登録／登録済み／習得済みの目印 */
+  .status {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: 4px;
+    font-size: 11px;
+    line-height: 18px;
+    margin-right: 4px;
+  }
+  .status.reg {
+    background: rgba(90, 169, 255, 0.16);
+    color: #8cc2ff;
+  }
+  .status.mastered {
+    background: rgba(76, 208, 138, 0.16);
+    color: #7fe0ad;
+  }
+  .opt.wide span {
+    width: auto;
+    flex: 1;
+  }
+  .opt.wide .chip {
+    flex: none;
+    width: 56px;
   }
   .toast {
     position: fixed;

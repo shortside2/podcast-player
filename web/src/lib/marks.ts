@@ -19,6 +19,7 @@ export function buildMark(tx: Transcript, episodeId: string, [a, b]: [number, nu
     tags: [],
     rating: 0,
     mastered: false,
+    registered: false,
     createdAt: Date.now(),
   };
 }
@@ -113,4 +114,38 @@ export function savePlaylistSettings(s: PlaylistSettings): void {
   } catch {
     /* 無視 */
   }
+}
+
+// ---- 登録済み ----
+const AUTO_REGISTER_KEY = 'listenloop.autoRegisterOnCopy';
+
+/** コピーしたときに自動で「登録済み」にするか（既定はオフ。端末に記憶） */
+export function loadAutoRegister(): boolean {
+  try {
+    return localStorage.getItem(AUTO_REGISTER_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+export function saveAutoRegister(on: boolean): void {
+  try {
+    localStorage.setItem(AUTO_REGISTER_KEY, on ? '1' : '0');
+  } catch {
+    /* 無視 */
+  }
+}
+
+/** マークの「登録済み」をまとめて付ける／外す */
+export async function setRegistered(ids: string[], registered: boolean): Promise<void> {
+  if (!ids.length) return;
+  await db.marks.bulkUpdate(ids.map((key) => ({ key, changes: { registered } })));
+}
+
+/** 設定がオンなら、コピーしたマークを登録済みにする。登録したら件数を返す */
+export async function registerAfterCopy(marks: Mark[]): Promise<number> {
+  if (!loadAutoRegister()) return 0;
+  const ids = marks.filter((m) => !m.registered).map((m) => m.id);
+  await setRegistered(ids, true);
+  return ids.length;
 }

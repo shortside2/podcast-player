@@ -56,6 +56,8 @@ export interface Mark {
   /** 評価（星 0〜5） */
   rating?: number;
   mastered: boolean;
+  /** Claude に送って意味を調べた（登録した）か。DB バージョン 2 で追加（既存のものは false で移行） */
+  registered: boolean;
   createdAt: number;
   /** ゴミ箱に入れた日時（入っていなければ undefined / null） */
   deletedAt?: number | null;
@@ -101,6 +103,26 @@ class ListenLoopDB extends Dexie {
       recordings: 'id, episodeId',
       settings: 'key',
     });
+    // バージョン 2: マークに「登録済み」(registered) を追加。
+    // 表の定義（索引）は変えず、既存のマークに既定値 false を入れるだけ。データを消したり作り直したりはしない
+    this.version(2)
+      .stores({
+        episodes: 'id, createdAt, lastPlayedAt, audioSha256',
+        audioBlobs: 'episodeId',
+        transcripts: 'episodeId',
+        ranges: 'id, episodeId, parentId',
+        marks: 'id, episodeId, createdAt',
+        recordings: 'id, episodeId',
+        settings: 'key',
+      })
+      .upgrade((tx) =>
+        tx
+          .table('marks')
+          .toCollection()
+          .modify((m: Partial<Mark>) => {
+            if (typeof m.registered !== 'boolean') m.registered = false;
+          }),
+      );
   }
 }
 

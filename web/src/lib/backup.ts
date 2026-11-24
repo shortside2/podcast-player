@@ -2,11 +2,14 @@ import { db, type Mark, type SavedRange } from './db/db';
 
 /**
  * 範囲・マーク・メモのバックアップ（1 つの JSON ファイル）。
+ * 版 2 でマークに registered（登録済み）が増えた。版 1 のファイルも読み込め、その場合は未登録として扱う。
  * 音声とスクリプトは含めない（Mac に元のファイルがあるため）。録音も第 4 段階以降で検討。
  *
  * エピソードは端末ごとに ID が違うので、音声の SHA-256 で対応付ける。
  */
-const BACKUP_VERSION = 1;
+const BACKUP_VERSION = 2;
+/** 読み込める版。1 = 登録済み（registered）を追加する前の形式 */
+const READABLE_VERSIONS = [1, 2];
 
 interface BackupEpisode {
   audioSha256: string;
@@ -59,7 +62,7 @@ export async function importBackup(text: string): Promise<string[]> {
   } catch {
     return ['ファイルを読み込めませんでした'];
   }
-  if (data?.app !== 'ListenLoop' || data.backupVersion !== BACKUP_VERSION) return ['ListenLoop のバックアップファイルではありません'];
+  if (data?.app !== 'ListenLoop' || !READABLE_VERSIONS.includes(data.backupVersion)) return ['ListenLoop のバックアップファイルではありません'];
 
   const episodes = await db.episodes.toArray();
   const idBySha = new Map(episodes.filter((e) => e.audioSha256).map((e) => [e.audioSha256!, e.id]));
@@ -81,7 +84,9 @@ export async function importBackup(text: string): Promise<string[]> {
     for (const { audioSha256, ...m } of data.marks) {
       const episodeId = idBySha.get(audioSha256);
       if (!episodeId) continue;
-      await db.marks.put({ ...m, episodeId });
+      // 古い版のバックアップには registered がない。この端末にすでにあるマークならその状態を残し、なければ未登録にする
+      const registered = typeof m.registered === 'boolean' ? m.registered : ((await db.marks.get(m.id))?.registered ?? false);
+      await db.marks.put({ ...m, registered, episodeId });
       marks++;
     }
   });

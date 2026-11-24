@@ -3,7 +3,7 @@
   import Stars from './Stars.svelte';
   import { db, type Mark } from '../lib/db/db';
   import { formatTimePrecise } from '../lib/format';
-  import { KIND_LABEL, MARK_TAGS, marksToText } from '../lib/marks';
+  import { KIND_LABEL, MARK_TAGS, loadAutoRegister, marksToText } from '../lib/marks';
   import type { Transcript } from '../lib/transcript/transcript';
 
   let {
@@ -27,6 +27,7 @@
   const m = mark;
   let note = $state(m.note);
   let mastered = $state(m.mastered);
+  let registered = $state(!!m.registered);
   let tags = $state<string[]>([...(m.tags ?? [])]);
   let rating = $state(m.rating ?? 0);
   let first = $state(m.firstWord);
@@ -65,6 +66,12 @@
     onMessage(mastered ? '習得済みにしました（一覧から隠れます）' : '習得済みを外しました');
   }
 
+  async function toggleRegistered() {
+    registered = !registered;
+    await db.marks.update(m.id, { registered });
+    onMessage(registered ? '登録済みにしました' : '登録済みを外しました');
+  }
+
   /** 範囲の始まり・終わりを 1 語ずつ動かす */
   async function adjust(which: 'first' | 'last', dir: -1 | 1) {
     const tx = transcript;
@@ -86,7 +93,14 @@
   async function copy() {
     try {
       await navigator.clipboard.writeText(marksToText([{ ...m, text, note, tags }]));
-      onMessage('コピーしました');
+      // 設定で「コピーしたら登録済みにする」がオンなら登録済みにする
+      if (loadAutoRegister() && !registered) {
+        registered = true;
+        await db.marks.update(m.id, { registered: true });
+        onMessage('コピーしました（登録済みにしました）');
+      } else {
+        onMessage('コピーしました');
+      }
     } catch {
       onMessage('コピーできませんでした');
     }
@@ -144,6 +158,7 @@
     placeholder="メモ（意味・気づき・聞き取れなかった理由など）"></textarea>
 
   <div class="actions">
+    <button class="pill" class:on={registered} onclick={toggleRegistered}>{registered ? '✓ 登録済み' : '登録済みにする'}</button>
     <button class="pill" class:on={mastered} onclick={toggleMastered}>{mastered ? '✓ 習得済み' : '習得済みにする'}</button>
     {#if onPractice}
       <button class="pill" onclick={async () => { await saveNote(); onPractice({ ...m, text }); }}><Icon name="mic" />発音</button>
