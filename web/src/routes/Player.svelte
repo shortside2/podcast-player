@@ -457,9 +457,27 @@
     showToast(`区間：${t.titleJa || t.titleEn}`);
   }
 
+  /** 話題 a〜b（両端を含む）をまとめて 1 つの区間にする */
+  function selectTopicRange(a: number, b: number) {
+    const tx = transcript;
+    const topics = tx?.doc.topics;
+    const ta = topics?.[a];
+    const tb = topics?.[b];
+    if (!tx || !ta || !tb) return;
+    if (a === b) return selectTopic(a);
+    const title = (t: typeof ta) => t.titleJa || t.titleEn || '';
+    const name = `話題 ${a + 1}〜${b + 1}：${title(ta)} 〜 ${title(tb)}`;
+    loop.setSection({ start: tx.aPointForWord(ta.firstWord), end: tx.bPointForWord(tb.lastWord), name });
+    if (!loop.contains(tNow())) engine.seek(loop.section!.start + timingOffset);
+    panel = 'none';
+    view?.resumeFollow();
+    showToast(`区間：話題 ${a + 1}〜${b + 1}（${formatTime(loop.section!.start)}–${formatTime(loop.section!.end)}）`);
+  }
+
   // ---- 範囲の保存・呼び出し ----
   function defaultName(r: ActiveRange): string {
-    if (r.kind === 'section') return `区間 ${formatTime(r.start)}–${formatTime(r.end)}`;
+    // 話題から作った区間は、その名前（話題の見出し）を保存名の候補にする
+    if (r.kind === 'section') return r.name || `区間 ${formatTime(r.start)}–${formatTime(r.end)}`;
     const tx = transcript!;
     const a = tx.wordForAPoint(r.start);
     const b = Math.min(tx.wordForBPoint(r.end), a + 5);
@@ -722,6 +740,7 @@
           {activeIds}
           topics={transcript?.doc.topics ?? []}
           onTopic={selectTopic}
+          onTopicRange={selectTopicRange}
           onOpen={openSaved}
           onNewSection={newSection}
           onSentenceAB={sentenceABHere} />

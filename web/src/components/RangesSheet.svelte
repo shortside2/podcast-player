@@ -11,6 +11,7 @@
     activeIds,
     topics,
     onTopic,
+    onTopicRange,
     onOpen,
     onNewSection,
     onSentenceAB,
@@ -19,10 +20,41 @@
     activeIds: (string | null)[];
     topics: TranscriptTopic[];
     onTopic: (index: number) => void;
+    /** 話題 a〜b（両端を含む）をまとめて 1 つの区間にする */
+    onTopicRange: (a: number, b: number) => void;
     onOpen: (r: SavedRange, parent: SavedRange | null) => void;
     onNewSection: () => void;
     onSentenceAB: () => void;
   } = $props();
+
+  // 複数の話題をまとめるモード: 始めの話題 → 終わりの話題の順にタップする
+  let multi = $state(false);
+  let pickA = $state<number | null>(null);
+  let pickB = $state<number | null>(null);
+  const picked = $derived(pickA == null ? null : pickB == null ? [pickA, pickA] : [Math.min(pickA, pickB), Math.max(pickA, pickB)]);
+
+  function setMulti(on: boolean) {
+    multi = on;
+    pickA = null;
+    pickB = null;
+  }
+
+  function tapTopic(i: number) {
+    if (!multi) return onTopic(i);
+    // 1 回目 = 始め、2 回目 = 終わり。3 回目は選び直し（新しい始め）
+    if (pickA == null || pickB != null) {
+      pickA = i;
+      pickB = null;
+    } else {
+      pickB = i;
+    }
+  }
+
+  function makeRange() {
+    if (!picked) return;
+    onTopicRange(picked[0], picked[1]);
+    setMulti(false);
+  }
 
   const ranges = liveQuery(() => db.ranges.where('episodeId').equals(episodeId).toArray());
 
@@ -76,11 +108,24 @@
   <p class="hint">文を長押しして選択すると、選んだ範囲で AB リピートや区間を作れます。</p>
 
   {#if topics.length}
-    <h3>話題（タップで区間にする）</h3>
+    <div class="topics-head">
+      <h3>{multi ? '始めの話題と終わりの話題をタップ' : '話題（タップで区間にする）'}</h3>
+      {#if topics.length > 1}
+        <button class="chip" class:on={multi} onclick={() => setMulti(!multi)}>{multi ? 'やめる' : '複数の話題をまとめる'}</button>
+      {/if}
+    </div>
+    {#if multi}
+      <div class="multibar">
+        <span>{picked ? (picked[0] === picked[1] ? `話題 ${picked[0] + 1} から（終わりの話題をタップ）` : `話題 ${picked[0] + 1}〜${picked[1] + 1}`) : '始めの話題をタップ'}</span>
+        <button class="pill primary" disabled={!picked} onclick={makeRange}>区間にする</button>
+      </div>
+    {/if}
     <ul class="topics">
       {#each topics as t, i}
-        <li>
-          <button class="open" onclick={() => onTopic(i)}>
+        <li
+          class:picked={picked && i >= picked[0] && i <= picked[1]}
+          class:edge={picked && (i === picked[0] || i === picked[1])}>
+          <button class="open" aria-pressed={multi ? !!(picked && i >= picked[0] && i <= picked[1]) : undefined} onclick={() => tapTopic(i)}>
             <span class="kind">{i + 1}</span>
             <span class="name">{t.titleJa || t.titleEn}</span>
             <span class="meta">{formatTime(t.start)}–{formatTime(t.end)}{t.titleJa && t.titleEn ? ` · ${t.titleEn}` : ''}</span>
@@ -125,6 +170,61 @@
     font-weight: 600;
     color: var(--text-dim);
     margin: 14px 0 4px;
+  }
+  .topics-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 14px 0 4px;
+  }
+  .topics-head h3 {
+    margin: 0;
+  }
+  .chip {
+    flex: none;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 14px;
+    background: var(--surface-2);
+    font-size: 12px;
+  }
+  .chip.on {
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .multibar {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    background: var(--surface);
+    font-size: 13px;
+  }
+  .multibar span {
+    flex: 1;
+    min-width: 0;
+  }
+  /* まとめる範囲に入っている話題 */
+  .topics li.picked {
+    background: var(--accent-soft);
+  }
+  .topics li.picked .kind {
+    background: var(--accent);
+    color: var(--accent-ink);
+  }
+  .topics li.picked + li.picked {
+    border-top-color: transparent;
+  }
+  .topics li.edge .name {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .topics .open {
+    padding-left: 4px;
   }
   .topics .meta {
     white-space: nowrap;
