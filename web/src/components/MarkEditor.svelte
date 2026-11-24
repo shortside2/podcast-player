@@ -3,7 +3,7 @@
   import Stars from './Stars.svelte';
   import { db, type Mark } from '../lib/db/db';
   import { formatTimePrecise } from '../lib/format';
-  import { KIND_LABEL, MARK_TAGS, loadAutoRegister, marksToText } from '../lib/marks';
+  import { KIND_LABEL, MARK_TAGS, loadAutoRegister, loadCopyWithJa, marksToText } from '../lib/marks';
   import type { Transcript } from '../lib/transcript/transcript';
 
   let {
@@ -12,8 +12,11 @@
     onClose,
     onMessage,
     onPractice,
+    jaText = null,
   }: {
     mark: Mark;
+    /** この記録の元の文の訳（設定で「コピーに訳を含める」がオンのときコピーに足す） */
+    jaText?: string | null;
     /** あれば、マークの範囲を単語単位で直せる */
     transcript?: Transcript | null;
     onClose: () => void;
@@ -92,7 +95,7 @@
 
   async function copy() {
     try {
-      await navigator.clipboard.writeText(marksToText([{ ...m, text, note, tags }]));
+      await navigator.clipboard.writeText(marksToText([{ ...m, text, note, tags }], loadCopyWithJa() ? () => jaText : undefined));
       // 設定で「コピーしたら登録済みにする」がオンなら登録済みにする
       if (loadAutoRegister() && !registered) {
         registered = true;

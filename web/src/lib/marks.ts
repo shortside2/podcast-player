@@ -74,15 +74,47 @@ export const isLive = (m: Mark) => !m.deletedAt;
  * 種類（タグ）があれば先頭に [聞き取れない] のように付け、メモがあれば次の行に続ける。
  * 複数のときは空行で区切る。
  */
-export function marksToText(marks: Mark[]): string {
+export function marksToText(marks: Mark[], jaOf?: (m: Mark) => string | null): string {
   return marks
     .map((m) => {
       const tags = (m.tags ?? []).map((t) => TAG_LABEL[t]).filter(Boolean);
       const head = tags.length ? `[${tags.join('・')}] ${m.text}` : m.text;
-      return m.note.trim() ? `${head}\n${m.note.trim()}` : head;
+      const lines = [head];
+      if (m.note.trim()) lines.push(m.note.trim());
+      // 設定で「コピーに訳を含める」がオンのときだけ、元の文の訳を足す
+      const ja = jaOf?.(m);
+      if (ja) lines.push(`訳：${ja}`);
+      return lines.join('\n');
     })
     .join('\n\n');
 }
+
+// ---- 訳の表示・コピー（記録の一覧。端末に記憶） ----
+const SHOW_JA_KEY = 'listenloop.marksShowJa';
+const COPY_JA_KEY = 'listenloop.copyWithJa';
+
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeFlag(key: string, on: boolean): void {
+  try {
+    localStorage.setItem(key, on ? '1' : '0');
+  } catch {
+    /* 無視 */
+  }
+}
+
+/** 記録の一覧で訳を表示するか（既定は表示しない） */
+export const loadMarksShowJa = () => readFlag(SHOW_JA_KEY);
+export const saveMarksShowJa = (on: boolean) => writeFlag(SHOW_JA_KEY, on);
+/** コピーに訳を含めるか（既定は含めない） */
+export const loadCopyWithJa = () => readFlag(COPY_JA_KEY);
+export const saveCopyWithJa = (on: boolean) => writeFlag(COPY_JA_KEY, on);
 
 export const KIND_LABEL: Record<Mark['kind'], string> = { word: '単語', sentence: '文', range: '範囲' };
 

@@ -1,4 +1,5 @@
 import type { Transcript } from './transcript';
+import { Translations } from './translation';
 
 export interface TranscriptViewOptions {
   onWordTap: (wordIndex: number) => void;
@@ -31,9 +32,14 @@ const LEAD_SEC = 0.08;
 export class TranscriptView {
   private wordEls: HTMLElement[] = [];
   private spaceEls: HTMLElement[] = [];
-  /** 文 → その文を含む段落の日本語訳の要素（訳がなければ undefined） */
+  /** 文 → その文に対応する日本語訳の要素（文単位の訳、なければ段落の訳。訳がなければ undefined） */
   private jaOfSentence: (HTMLElement | undefined)[] = [];
   private curJa: HTMLElement | undefined;
+  /** 選択中の英文に対応する訳の要素 */
+  private selJa: HTMLElement[] = [];
+  /** 段落の要素と、その段落の文番号・段落の訳（訳を描き直すときに使う） */
+  private paraInfo: { el: HTMLElement; sentences: number[]; ja: string | null }[] = [];
+  private translations: Translations;
   /** テキストを隠すモード */
   private hideMode = false;
   /** 隠すモードで、聞き終えた文を自動で表示する */
@@ -55,7 +61,9 @@ export class TranscriptView {
     private readonly content: HTMLElement,
     private readonly transcript: Transcript,
     private readonly opts: TranscriptViewOptions,
+    translations?: Translations,
   ) {
+    this.translations = translations ?? new Translations(transcript.doc, null);
     this.render();
     this.bindEvents();
   }
@@ -92,13 +100,7 @@ export class TranscriptView {
       if (this.curSentence >= 0) this.sentenceEls[this.curSentence]?.classList.remove('cur-s');
       if (s >= 0) this.sentenceEls[s]?.classList.add('cur-s');
       this.curSentence = s;
-      // 今の段落の日本語訳を強調する
-      const ja = s >= 0 ? this.jaOfSentence[s] : undefined;
-      if (ja !== this.curJa) {
-        this.curJa?.classList.remove('cur-ja');
-        ja?.classList.add('cur-ja');
-        this.curJa = ja;
-      }
+      this.applyCurJa();
     }
 
     if (needScroll) this.follow(first);
@@ -278,6 +280,75 @@ export class TranscriptView {
    */
   setSelection(range: [number, number] | null): void {
     this.applyRangeClass('sel', range);
+    this.applySelJa();
+  }
+
+  /** 再生中の文に対応する訳を強調する */
+  private applyCurJa(): void {
+    const ja = this.curSentence >= 0 ? this.jaOfSentence[this.curSentence] : undefined;
+    if (ja === this.curJa) return;
+    this.curJa?.classList.remove('cur-ja');
+    ja?.classList.add('cur-ja');
+    this.curJa = ja;
+  }
+
+  /** 選択中（長押しで選んだ範囲）の英文に対応する訳を強調する */
+  private applySelJa(): void {
+    for (const el of this.selJa) el.classList.remove('sel-ja');
+    this.selJa = [];
+    const r = this.marked.sel;
+    if (!r) return;
+    const a = this.transcript.sentenceOfWord(r[0]);
+    const b = this.transcript.sentenceOfWord(r[1]);
+    if (a < 0 || b < 0) return;
+    for (let si = a; si <= b; si++) {
+      const el = this.jaOfSentence[si];
+      if (el && !this.selJa.includes(el)) {
+        el.classList.add('sel-ja');
+        this.selJa.push(el);
+      }
+    }
+  }
+
+  /** 訳データを差し替えて、訳の部分だけ描き直す（英文・ハイライト・マーカーはそのまま） */
+  setTranslations(tr: Translations): void {
+    this.translations = tr;
+    this.renderJa();
+  }
+
+  get hasTranslations(): boolean {
+    return this.translations.hasAny;
+  }
+
+  /** 各段落の後ろに訳を描く。文単位の訳は文ごとの要素に分け、対応する英文から引けるようにする */
+  private renderJa(): void {
+    this.jaOfSentence = new Array(this.transcript.sentences.length);
+    this.curJa = undefined;
+    this.selJa = [];
+    for (const { el: p, sentences, ja } of this.paraInfo) {
+      p.querySelector(':scope > .ja')?.remove();
+      const units = this.translations.unitsFor(sentences, ja);
+      if (!units.length) continue;
+      const el = document.createElement('span');
+      el.className = 'ja';
+      el.lang = 'ja';
+      if (units[0].level === 'paragraph') {
+        // 段落まるごとの訳しかない: 段落のどの文でも、この訳全体を強調する
+        el.textContent = units[0].text;
+        for (const si of units[0].sentences) this.jaOfSentence[si] = el;
+      } else {
+        for (const u of units) {
+          const part = document.createElement('span');
+          part.className = 'jas';
+          part.textContent = u.text;
+          el.append(part);
+          for (const si of u.sentences) this.jaOfSentence[si] = part;
+        }
+      }
+      p.append(el);
+    }
+    this.applyCurJa();
+    this.applySelJa();
   }
 
   private applyRangeClass(cls: 'in-ab' | 'in-sec' | 'sel', next: [number, number] | null): void {
@@ -301,8 +372,8 @@ export class TranscriptView {
     const frag = document.createDocumentFragment();
     this.wordEls = new Array(words.length);
     this.spaceEls = new Array(words.length);
-    this.jaOfSentence = new Array(sentences.length);
     this.sentenceEls = new Array(sentences.length);
+    this.paraInfo = [];
 
     // 話題の見出しを入れる位置（単語番号 → 話題番号）
     const topicAt = new Map<number, number>();
@@ -329,26 +400,10 @@ export class TranscriptView {
     };
 
     let sentencesInParagraph: number[] = [];
+    // 段落を閉じるときに、訳を描くための情報を控える（訳そのものは renderJa で描く）
     const closeParagraph = () => {
-      const para = paragraphs?.[pi];
-      if (p && para?.ja) {
-        const el = document.createElement('span');
-        el.className = 'ja';
-        el.lang = 'ja';
-        if (para.jaSentences?.length) {
-          // 文ごとの訳: 訳の部分ごとに要素を分け、対応する英文から引けるようにする
-          for (const u of para.jaSentences) {
-            const part = document.createElement('span');
-            part.className = 'jas';
-            part.textContent = u.text;
-            el.append(part);
-            for (let si = u.firstSentence; si <= u.lastSentence; si++) this.jaOfSentence[si] = part;
-          }
-        } else {
-          el.textContent = para.ja;
-          for (const si of sentencesInParagraph) this.jaOfSentence[si] = el;
-        }
-        p.append(el);
+      if (p && sentencesInParagraph.length) {
+        this.paraInfo.push({ el: p, sentences: sentencesInParagraph, ja: paragraphs?.[pi]?.ja ?? null });
       }
       sentencesInParagraph = [];
     };
@@ -382,6 +437,8 @@ export class TranscriptView {
       } else {
         const speakerChanged = sent.speaker != null && sent.speaker !== prevSpeaker;
         if (!p || speakerChanged || sent.start - prevEnd >= PARAGRAPH_PAUSE_SEC || inParagraph >= PARAGRAPH_MAX_SENTENCES) {
+          // 段落のない JSON でも、取り込んだ訳を段落ごとに出せるよう区切りを控える
+          if (p) closeParagraph();
           openParagraph(sent.speaker, false);
         }
       }
@@ -411,6 +468,7 @@ export class TranscriptView {
     });
     closeParagraph();
     this.content.replaceChildren(frag);
+    this.renderJa();
   }
 
   /** テキストを隠すモード（伏せ字）のオン・オフ */

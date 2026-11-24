@@ -78,6 +78,20 @@ export interface Recording {
   createdAt: number;
 }
 
+/**
+ * 取り込んだ日本語訳（エピソードごとに 1 行）。DB バージョン 3 で追加。
+ * 文の ID はスクリプトの sentences の番号（0 から）。訳の準備用に書き出す「[ID] 英文」と同じ番号
+ */
+export interface TranslationRow {
+  episodeId: string;
+  version: 1;
+  /** 文の ID → 訳文 */
+  sentences: Record<number, string>;
+  /** 取り込んだときのスクリプトの文の数（スクリプトが差し替わったことに気づくため） */
+  sentenceCount: number;
+  updatedAt: number;
+}
+
 export interface SettingRow {
   key: string;
   value: unknown;
@@ -91,6 +105,7 @@ class ListenLoopDB extends Dexie {
   marks!: Table<Mark, string>;
   recordings!: Table<Recording, string>;
   settings!: Table<SettingRow, string>;
+  translations!: Table<TranslationRow, string>;
 
   constructor() {
     super('listenloop');
@@ -123,19 +138,22 @@ class ListenLoopDB extends Dexie {
             if (typeof m.registered !== 'boolean') m.registered = false;
           }),
       );
+    // バージョン 3: 取り込んだ日本語訳の表（translations）を追加するだけ。既存の表には触れない
+    this.version(3).stores({ translations: 'episodeId' });
   }
 }
 
 export const db = new ListenLoopDB();
 
 export async function deleteEpisode(id: string): Promise<void> {
-  await db.transaction('rw', [db.episodes, db.audioBlobs, db.transcripts, db.ranges, db.marks, db.recordings], async () => {
+  await db.transaction('rw', [db.episodes, db.audioBlobs, db.transcripts, db.ranges, db.marks, db.recordings, db.translations], async () => {
     await db.episodes.delete(id);
     await db.audioBlobs.delete(id);
     await db.transcripts.delete(id);
     await db.ranges.where('episodeId').equals(id).delete();
     await db.marks.where('episodeId').equals(id).delete();
     await db.recordings.where('episodeId').equals(id).delete();
+    await db.translations.delete(id);
   });
 }
 

@@ -6,11 +6,14 @@
   import RangesSheet from '../components/RangesSheet.svelte';
   import MarkEditor from '../components/MarkEditor.svelte';
   import PracticePanel from '../components/PracticePanel.svelte';
+  import TranslationSheet from '../components/TranslationSheet.svelte';
+  import { Translations } from '../lib/transcript/translation';
+  import { loadTranslations } from '../lib/transcript/translationStore';
   import { Practice, type PracticeTarget } from '../lib/playback/practice.svelte';
   import { liveQuery } from 'dexie';
   import { addMark, buildMark, isLive, loadPlaylistSettings, markColor, withAlpha } from '../lib/marks';
   import { MarkPlayer } from '../lib/playback/markPlayer.svelte';
-  import { db, newId, type Episode, type Mark, type SavedRange } from '../lib/db/db';
+  import { db, newId, type Episode, type Mark, type SavedRange, type TranslationRow } from '../lib/db/db';
   import { formatTime, formatTimePrecise } from '../lib/format';
   import { PlaybackEngine } from '../lib/playback/engine.svelte';
   import { LoopController, type ActiveRange, type RangeKind } from '../lib/playback/loop.svelte';
@@ -68,7 +71,11 @@
   /** テキストを隠すモード */
   let hideMode = $state(readFlag(HIDE_KEY));
   let autoReveal = $state(readFlag(AUTO_REVEAL_KEY));
-  const hasJa = $derived(!!transcript?.doc.paragraphs?.some((p) => p.ja));
+  /** 訳（取り込んだ訳データ＋スクリプトの中の訳） */
+  let translations = $state.raw<Translations | null>(null);
+  let translationRow = $state.raw<TranslationRow | null>(null);
+  let translationSheet = $state(false);
+  const hasJa = $derived(!!translations?.hasAny);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   let scroller: HTMLElement;
@@ -93,6 +100,9 @@
     timingOffset = ep.timingOffset;
     const tx = new Transcript(tr.doc);
     transcript = tx;
+    const loaded = await loadTranslations(id, tr.doc);
+    translations = loaded.tr;
+    translationRow = loaded.row;
     view = new TranscriptView(scroller, content, tx, {
       onWordTap: (i) => {
         // 調整パネルを開いているときは、タップした位置に A / B を置く（再生位置は動かさない）
@@ -109,7 +119,7 @@
       },
       onFollowChange: (f) => (following = f),
       onTopicTap: (ti) => selectTopic(ti),
-    });
+    }, loaded.tr);
     view.setTimingOffset(timingOffset);
     view.setShowJa(showJa);
     view.setHideMode(hideMode, autoReveal);
@@ -385,6 +395,24 @@
     }
   }
 
+  /** 訳データを取り込んだ・消したあと: 読み込み直して訳の表示だけ描き直す */
+  async function reloadTranslations() {
+    if (!transcript) return;
+    const loaded = await loadTranslations(id, transcript.doc);
+    translations = loaded.tr;
+    translationRow = loaded.row;
+    view?.setTranslations(loaded.tr);
+  }
+
+  /** 記録の元の文の訳（コピーに訳を含めるとき用） */
+  function jaForMark(m: Mark): string | null {
+    const tx = transcript;
+    if (!tx || !translations) return null;
+    // 段落まるごとの訳は長すぎるので、文ごとの訳があるときだけ
+    const ja = translations.forSentences(tx.sentenceOfWord(m.firstWord), tx.sentenceOfWord(m.lastWord));
+    return ja?.level === 'sentence' ? ja.text : null;
+  }
+
   function toggleJa() {
     showJa = !showJa;
     view?.setShowJa(showJa);
@@ -585,6 +613,17 @@
 
 <svelte:window onkeydown={onKey} />
 
+{#if translationSheet && transcript && translations}
+  <TranslationSheet
+    episodeId={id}
+    doc={transcript.doc}
+    row={translationRow}
+    {translations}
+    onChanged={reloadTranslations}
+    onClose={() => (translationSheet = false)}
+    onMessage={showToast} />
+{/if}
+
 <div class="player">
   <header>
     <button class="icon-btn" aria-label="一覧に戻る" onclick={() => router.go('#/')}><Icon name="chevron-left" /></button>
@@ -712,6 +751,7 @@
           <MarkEditor
             mark={editingMark}
             {transcript}
+            jaText={jaForMark(editingMark)}
             onPractice={(m) => { engine.pause(); openPractice({ episodeId: id, start: m.start, end: m.end, markId: m.id }, m.text); }}
             onClose={() => { panel = 'none'; editingMark = null; }} onMessage={showToast} />
         {/key}
@@ -724,6 +764,13 @@
             <div class="hint">繰り返した箇所が、そのまま記録一覧にたまります</div>
           </div>
           <button class="pill" class:on={autoMarkAB} onclick={() => setAutoMark(!autoMarkAB)}>{autoMarkAB ? 'オン' : 'オフ'}</button>
+        </div>
+        <div class="setting">
+          <div>
+            <div class="label">訳データ</div>
+            <div class="hint">{translationRow ? `取り込んだ訳 ${Object.keys(translationRow.sentences).length} 文` : translations?.hasSentenceLevel ? 'スクリプトの文ごとの訳' : translations?.hasAny ? 'スクリプトの段落ごとの訳' : 'なし'}・書き出しと取り込み</div>
+          </div>
+          <button class="pill" onclick={() => { panel = 'none'; translationSheet = true; }}>開く</button>
         </div>
         <div class="setting">
           <div>

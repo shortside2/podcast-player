@@ -16,6 +16,10 @@
     TAG_LABEL,
     isLive,
     loadAutoRegister,
+    loadCopyWithJa,
+    loadMarksShowJa,
+    saveCopyWithJa,
+    saveMarksShowJa,
     loadPlaylistSettings,
     registerAfterCopy,
     saveAutoRegister,
@@ -31,6 +35,7 @@
   import { router } from '../lib/router.svelte';
   import { Transcript } from '../lib/transcript/transcript';
   import type { TranscriptTopic } from '../lib/transcript/types';
+  import { Translations } from '../lib/transcript/translation';
 
   let { episodeId }: { episodeId: string | null } = $props();
 
@@ -42,6 +47,7 @@
   // svelte-ignore state_referenced_locally
   const marks = liveQuery(() => (episodeId ? db.marks.where('episodeId').equals(episodeId).toArray() : db.marks.toArray()));
   const episodes = liveQuery(() => db.episodes.toArray());
+  const translationRows = liveQuery(() => db.translations.toArray());
 
   const saved = readView();
   /** 表示する一覧: 記録（まだ覚えていないもの）/ 習得済み / ゴミ箱 */
@@ -59,6 +65,10 @@
   let regFilter = $state<'all' | 'unregistered' | 'registered'>('all');
   /** コピーしたら自動で登録済みにする（既定オフ） */
   let autoRegister = $state(loadAutoRegister());
+  /** 各記録に、元の一文の日本語訳を表示する */
+  let showJa = $state(loadMarksShowJa());
+  /** コピーに訳を含める（既定は含めない） */
+  let copyWithJa = $state(loadCopyWithJa());
   /** 並べ替え: 時刻順 / 評価の高い順 / 新しい順 */
   let sort = $state<'time' | 'rating' | 'new'>(saved.sort);
   /** まとめ方: 話題（章）ごと / まとめて */
@@ -109,6 +119,39 @@
     if (!(await ensureLoaded(m.episodeId))) return showToast('エピソードが見つかりません');
     editing = null;
     practicing = m;
+  }
+
+  /** エピソードごとの訳（取り込んだ訳データ＋スクリプトの中の訳） */
+  const translationsByEp = $derived.by(() => {
+    const rows = new Map(($translationRows ?? []).map((r) => [r.episodeId, r]));
+    return new Map([...transcripts].map(([epId, tx]) => [epId, new Translations(tx.doc, rows.get(epId))]));
+  });
+
+  /** 記録を含む元の一文の訳。文ごとの訳がなければ段落の訳（level: 'paragraph'）、訳がなければ null */
+  function jaOf(m: Mark): { text: string; level: 'sentence' | 'paragraph' } | null {
+    const tx = transcripts.get(m.episodeId);
+    const tr = translationsByEp.get(m.episodeId);
+    if (!tx || !tr) return null;
+    return tr.forSentences(tx.sentenceOfWord(m.firstWord), tx.sentenceOfWord(m.lastWord));
+  }
+
+  /**
+   * コピー用の訳。文ごとの訳だけを使う
+   * （段落まるごとの訳は数十文になることがあり、記録の訳としては長すぎるため含めない）
+   */
+  function jaTextOf(m: Mark): string | null {
+    const ja = jaOf(m);
+    return ja?.level === 'sentence' ? ja.text : null;
+  }
+
+  function setShowJa(on: boolean) {
+    showJa = on;
+    saveMarksShowJa(on);
+  }
+
+  function setCopyWithJa(on: boolean) {
+    copyWithJa = on;
+    saveCopyWithJa(on);
   }
 
   async function loadTranscript(epId: string): Promise<void> {
@@ -179,7 +222,7 @@
   async function copy(list: Mark[]) {
     if (!list.length) return showToast('コピーする記録がありません');
     try {
-      await navigator.clipboard.writeText(marksToText(list));
+      await navigator.clipboard.writeText(marksToText(list, copyWithJa ? jaTextOf : undefined));
     } catch {
       showToast('コピーできませんでした');
       return;
@@ -408,6 +451,9 @@
         <button class:on={sort === 'new'} onclick={() => (sort = 'new')}>新しい順</button>
       </div>
       <div class="seg">
+        <button class:on={showJa} aria-pressed={showJa} onclick={() => setShowJa(!showJa)}>訳{showJa ? 'を隠す' : 'を表示'}</button>
+      </div>
+      <div class="seg">
         <button class:on={regFilter === 'all'} onclick={() => (regFilter = 'all')}>すべて</button>
         <button class:on={regFilter === 'unregistered'} onclick={() => (regFilter = 'unregistered')}>未登録</button>
         <button class:on={regFilter === 'registered'} onclick={() => (regFilter = 'registered')}>登録済み</button>
@@ -424,7 +470,7 @@
 
     <section class="settings">
       <button class="settings-head" onclick={() => (settingsOpen = !settingsOpen)}>
-        <span>設定</span><span class="sum">{playlistSummary}{autoRegister ? '・コピーで登録' : ''} {settingsOpen ? '▲' : '▼'}</span>
+        <span>設定</span><span class="sum">{playlistSummary}{autoRegister ? '・コピーで登録' : ''}{copyWithJa ? '・訳つきコピー' : ''} {settingsOpen ? '▲' : '▼'}</span>
       </button>
       {#if settingsOpen}
         <div class="opt"><span>回数</span>{#each REPEATS as r}<button class="chip" class:on={playlist.repeat === r} onclick={() => setPlaylist({ repeat: r })}>{r}</button>{/each}</div>
@@ -433,6 +479,8 @@
         <p class="hint">各箇所を「回数」ずつ、「間隔」の無音をはさんで順番に再生します。「余白」は各箇所の前後に足す長さです（前後の単語には食い込みません）。</p>
         <div class="opt wide"><span>コピーしたら登録済みにする</span><button class="chip" class:on={!autoRegister} onclick={() => setAutoRegister(false)}>オフ</button><button class="chip" class:on={autoRegister} onclick={() => setAutoRegister(true)}>オン</button></div>
         <p class="hint">オンにすると、記録をコピーしたとき（1 件でも、まとめてでも）その記録に「登録済み」が付きます。</p>
+        <div class="opt wide"><span>コピーに訳を含める</span><button class="chip" class:on={!copyWithJa} onclick={() => setCopyWithJa(false)}>オフ</button><button class="chip" class:on={copyWithJa} onclick={() => setCopyWithJa(true)}>オン</button></div>
+        <p class="hint">オンにすると、コピーした記録の下に、その記録を含む元の一文の訳を「訳：…」として付けます（文ごとの訳がある回だけ。段落まるごとの訳は長いため付けません）。</p>
       {/if}
     </section>
 
@@ -481,6 +529,7 @@
                 <MarkEditor
                   mark={m}
                   transcript={transcripts.get(m.episodeId) ?? null}
+                  jaText={jaTextOf(m)}
                   onPractice={(x) => void openPractice(x)}
                   onClose={() => (editing = null)}
                   onMessage={showToast} />
@@ -494,6 +543,14 @@
                   <button class="body" onclick={() => (selecting ? toggleSelect(m.id) : (editing = m.id))}>
                     <span class="text">{m.text}</span>
                     {#if m.note}<span class="note">{m.note}</span>{/if}
+                    {#if showJa}
+                      {@const ja = jaOf(m)}
+                      {#if ja}
+                        <span class="ja" class:para={ja.level === 'paragraph'} lang="ja">{#if ja.level === 'paragraph'}<span class="ja-lv">段落の訳</span>{/if}{ja.text}</span>
+                      {:else}
+                        <span class="ja none">訳データなし</span>
+                      {/if}
+                    {/if}
                     <span class="meta">
                       {#if m.rating}<Stars value={m.rating} />{/if}
                       {#each m.tags ?? [] as t}<span class="tagl" style:--c={TAG_COLOR[t]}>{TAG_LABEL[t]}</span>{/each}
@@ -858,6 +915,36 @@
     .selbar .pill {
       padding: 0 7px;
     }
+  }
+  /* 元の一文の日本語訳 */
+  .ja {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-dim);
+    padding-left: 8px;
+    border-left: 2px solid var(--line);
+  }
+  /* 段落まるごとの訳は長いことがあるので 3 行までにする */
+  .ja.para {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+  }
+  .ja.none {
+    color: var(--text-faint);
+  }
+  .ja-lv {
+    display: inline-block;
+    margin-right: 6px;
+    padding: 0 5px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    font-size: 10px;
+    line-height: 16px;
+    color: var(--text-faint);
+    vertical-align: 1px;
   }
   /* 未登録／登録済み／習得済みの目印 */
   .status {

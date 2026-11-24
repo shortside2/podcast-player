@@ -190,6 +190,13 @@ input[type='range'] {
 .transcript .ja:has(.cur-ja) {
   border-left-color: var(--accent);
 }
+/* 長押しで選んでいる英文の訳は青で示す（再生中の黄色と区別できるように） */
+.transcript .ja.sel-ja,
+.transcript .ja .jas.sel-ja {
+  color: #8cc2ff;
+  background: rgba(90, 169, 255, 0.12);
+  border-radius: 3px;
+}
 
 .transcript .s {
   color: var(--text-dim);
