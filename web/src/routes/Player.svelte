@@ -944,6 +944,7 @@
       <span class="time">-{formatTime((engine.duration || 0) - shownTime)}</span>
     </div>
 
+    <div class="transport">
     <div class="controls">
       <button class="icon-btn" aria-label="前の文" onclick={prevSentence}><Icon name="prevSentence" /></button>
       <button class="icon-btn" aria-label="5秒戻す" onclick={() => skip(-5)}><Icon name="back5" /></button>
@@ -968,6 +969,7 @@
         <Icon name="sun" />画面を消さない
       </button>
     </div>
+    </div>
   </footer>
 </div>
 
@@ -982,7 +984,7 @@
     display: flex;
     align-items: center;
     gap: 4px;
-    padding: calc(var(--safe-top) + 4px) 8px 4px;
+    padding: calc(var(--safe-top) + 4px) calc(8px + env(safe-area-inset-right, 0px)) 4px calc(8px + env(safe-area-inset-left, 0px));
     border-bottom: 1px solid var(--line);
   }
   header h1 {
@@ -1241,7 +1243,32 @@
     position: relative;
     border-top: 1px solid var(--line);
     background: var(--bg);
-    padding: 8px 16px calc(var(--safe-bottom) + 10px);
+    padding: 8px calc(16px + env(safe-area-inset-right, 0px)) calc(var(--safe-bottom) + 10px) calc(16px + env(safe-area-inset-left, 0px));
+  }
+  /* 横向きで画面の高さが低いとき: 再生ボタンの列と、速度・範囲などのボタンを 1 列に並べて、本文の見える範囲を広げる */
+  @media (orientation: landscape) and (max-height: 500px) {
+    footer {
+      padding-top: 6px;
+      padding-bottom: calc(var(--safe-bottom) + 6px);
+    }
+    .transport {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 24px;
+    }
+    .transport .controls {
+      flex: 0 1 300px;
+      margin: 0;
+    }
+    .transport .play {
+      width: 52px;
+      height: 52px;
+    }
+    .transport .play :global(svg) {
+      width: 24px;
+      height: 24px;
+    }
   }
   .panel {
     background: var(--surface);

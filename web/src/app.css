@@ -197,7 +197,8 @@ input[type='range'] {
   font-family: var(--reading);
   font-size: 20px;
   line-height: 1.65;
-  padding: 16px 20px 45vh;
+  /* 横向きの iPhone では、ノッチ側に文字がかからないよう左右の余白を広げる */
+  padding: 16px max(20px, env(safe-area-inset-right, 0px)) 45vh max(20px, env(safe-area-inset-left, 0px));
   -webkit-user-select: text;
   user-select: text;
 }

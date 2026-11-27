@@ -25,7 +25,8 @@ export default defineConfig({
         start_url: './',
         scope: './',
         display: 'standalone',
-        orientation: 'portrait',
+        // 'any' = 縦にも横にも回転する（'portrait' だと、Android でアプリとして入れたとき縦に固定される）
+        orientation: 'any',
         background_color: '#000000',
         theme_color: '#000000',
         icons: [
