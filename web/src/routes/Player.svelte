@@ -69,6 +69,8 @@
   /** 区間の始まりだけ決めて、終わりを待っている（単語番号） */
   let pendingSecStart = $state<number | null>(null);
   let showJa = $state(readShowJa());
+  /** 1 文ずつモード: 今くり返している文の番号（オフなら null） */
+  let sentenceRepeat = $state<number | null>(null);
   /** テキストを隠すモード */
   let hideMode = $state(readFlag(HIDE_KEY));
   let autoReveal = $state(readFlag(AUTO_REVEAL_KEY));
@@ -108,6 +110,8 @@
       onWordTap: (i) => {
         // 調整パネルを開いているときは、タップした位置に A / B を置く（再生位置は動かさない）
         if (panel === 'ab' || panel === 'section') return placePoint(i);
+        // 1 文ずつモードでは、タップした文をくり返す（区間の外なら区間は解除される）
+        if (sentenceRepeat != null) return repeatSentence(tx.sentenceOfWord(i));
         const t = tx.words[i].start - PREROLL;
         if (!loop.contains(t)) {
           showToast(`${loop.inner?.kind === 'ab' ? 'AB リピート' : '区間'}の外です。× で解除すると移動できます`);
@@ -253,6 +257,7 @@
 
   function prevSentence() {
     if (!transcript) return;
+    if (sentenceRepeat != null) return moveSentenceRepeat(-1);
     const t = tNow() + PREROLL + 0.01;
     const si = transcript.sentenceAt(t);
     if (si < 0) return seekTo(0);
@@ -263,6 +268,7 @@
 
   function nextSentence() {
     if (!transcript) return;
+    if (sentenceRepeat != null) return moveSentenceRepeat(1);
     // 文頭より少し手前（PREROLL）から再生しているので、その分を足して「今の文」を判定する
     const si = transcript.sentenceAt(tNow() + PREROLL + 0.01);
     const target = Math.min(si + 1, transcript.sentences.length - 1);
@@ -369,6 +375,65 @@
       loop.update(kind, end > r.start + 0.3 ? { end } : { end, start: tx.aPointForWord(first) });
     }
   }
+
+  // ---- 1 文ずつモード ----
+  // 今の文をくり返し、「次の文」（⏭・AirPods やロック画面の「次へ」も同じ）で次の文に移ってまたくり返す。
+  // 中身は回数∞の AB リピート。区間があれば、区間の中の文だけを行き来する
+
+  /** 文 si をくり返す AB を置いて、文頭から再生する */
+  function repeatSentence(si: number) {
+    const tx = transcript;
+    if (!tx) return;
+    const s = tx.sentences[si];
+    markPlayer.stop();
+    loop.setAB({ start: tx.aPointForWord(s.firstWord), end: tx.bPointForWord(s.lastWord), repeatCount: 0, gapSec: abDefaults().gapSec });
+    sentenceRepeat = si;
+    engine.seek(loop.ab!.start + timingOffset);
+    view?.resumeFollow();
+    void engine.play();
+  }
+
+  function startSentenceRepeat() {
+    if (!transcript) return;
+    panel = 'none';
+    repeatSentence(Math.max(0, transcript.sentenceAt(tNow() + PREROLL + 0.01)));
+    showToast('1文ずつ：「次の文」で次へ進みます');
+  }
+
+  /** 区間があれば、区間に入っている文の範囲 */
+  function sentenceBounds(): [number, number] {
+    const tx = transcript!;
+    const sec = loop.section;
+    if (!sec) return [0, tx.sentences.length - 1];
+    const first = tx.sentenceOfWord(tx.wordForAPoint(sec.start));
+    const last = tx.sentenceOfWord(tx.wordForBPoint(sec.end));
+    return [Math.max(0, first), last < 0 ? tx.sentences.length - 1 : last];
+  }
+
+  function moveSentenceRepeat(delta: number) {
+    if (sentenceRepeat == null || !transcript) return;
+    const [lo, hi] = sentenceBounds();
+    const next = sentenceRepeat + delta;
+    if (next < lo || next > hi) {
+      showToast(next < lo ? (loop.section ? '区間の最初の文です' : '最初の文です') : loop.section ? '区間の最後の文です' : '最後の文です');
+      return;
+    }
+    repeatSentence(next);
+  }
+
+  function stopSentenceRepeat() {
+    sentenceRepeat = null;
+    if (loop.ab) loop.release('ab');
+  }
+
+  // ほかの操作（選択範囲で AB・記録の連続再生など）で AB が置き換わったら、1 文ずつモードは終わり
+  $effect(() => {
+    const si = sentenceRepeat;
+    if (si == null || !transcript) return;
+    const ab = loop.ab;
+    const s = transcript.sentences[si];
+    if (!ab || markPlayer.active || Math.abs(ab.start - transcript.aPointForWord(s.firstWord)) > 0.01) sentenceRepeat = null;
+  });
 
   function sentenceABHere() {
     if (!transcript) return;
@@ -824,7 +889,23 @@
       </div>
     {/if}
 
-    {#each markPlayer.active ? [] : loop.stack as r (r.kind)}
+    {#if sentenceRepeat != null && transcript && loop.ab && !markPlayer.active}
+      {@const s = transcript.sentences[sentenceRepeat]}
+      <div class="rangebar sentence">
+        <button class="icon-btn rb-x" aria-label="前の文をくり返す" onclick={() => moveSentenceRepeat(-1)}><Icon name="prevSentence" /></button>
+        <div class="rb-main static">
+          <span class="rb-tag">1文ずつ</span>
+          <span class="rb-time">{sentenceRepeat + 1}/{transcript.sentences.length}</span>
+          <span class="rb-count">{loop.waiting ? '間隔…' : `${loop.ab.played + 1}回目`}</span>
+          <span class="rb-name">{transcript.words.slice(s.firstWord, Math.min(s.lastWord, s.firstWord + 7) + 1).map((w) => w.text).join(' ')}</span>
+        </div>
+        <button class="icon-btn rb-mark" aria-label="この文を記録" onclick={markAB}><Icon name="bookmark" /></button>
+        <button class="next-s" aria-label="次の文へ進む" onclick={() => moveSentenceRepeat(1)}>次の文<Icon name="nextSentence" /></button>
+        <button class="icon-btn rb-x" aria-label="1文ずつをやめる" onclick={stopSentenceRepeat}><Icon name="close" /></button>
+      </div>
+    {/if}
+
+    {#each markPlayer.active ? [] : loop.stack.filter((r) => !(sentenceRepeat != null && r.kind === 'ab')) as r (r.kind)}
       <div class="rangebar" class:ab={r.kind === 'ab'}>
         <button class="rb-main" class:open={panel === r.kind} onclick={() => togglePanel(r.kind)}>
           <span class="rb-tag">{r.kind === 'ab' ? 'AB' : '区間'}</span>
@@ -879,6 +960,9 @@
       </button>
       <button class="pill" class:on={panel === 'ranges'} onclick={() => togglePanel('ranges')}>
         <Icon name="repeat" />範囲
+      </button>
+      <button class="pill" class:on={sentenceRepeat != null} disabled={!transcript} onclick={() => (sentenceRepeat != null ? stopSentenceRepeat() : startSentenceRepeat())}>
+        1文ずつ
       </button>
       <button class="pill" class:on={wakeLock.enabled} disabled={!wakeLock.supported} onclick={() => wakeLock.setEnabled(!wakeLock.enabled)}>
         <Icon name="sun" />画面を消さない
@@ -1097,6 +1181,38 @@
   .rb-main.static {
     padding: 6px 4px;
   }
+  /* 1 文ずつモードのバー。「次の文」は親指で押しやすいよう大きく */
+  .rangebar.sentence {
+    background: var(--blue-soft);
+  }
+  .rangebar.sentence .rb-tag,
+  .rangebar.sentence .rb-time,
+  .rangebar.sentence .rb-count {
+    white-space: nowrap;
+  }
+  .rangebar.sentence .rb-tag {
+    color: var(--blue);
+  }
+  .rangebar.sentence .rb-mark {
+    margin-right: 4px;
+  }
+  .next-s {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    height: 40px;
+    padding: 0 10px 0 14px;
+    border-radius: 20px;
+    background: var(--blue);
+    color: var(--on-pin);
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .next-s :global(svg) {
+    width: 18px;
+    height: 18px;
+  }
   .rb-x {
     width: 36px;
     height: 36px;
@@ -1214,6 +1330,19 @@
   .sub {
     display: flex;
     justify-content: center;
-    gap: 8px;
+    gap: 5px;
+  }
+  /* 4 つ並べても 1 行に収まるよう少し詰める */
+  .sub .pill {
+    padding: 0 9px;
+    gap: 4px;
+    font-size: 14px;
+    white-space: nowrap;
+  }
+  /* 幅の狭い iPhone では「画面を消さない」などのアイコンを省いて収める */
+  @media (max-width: 380px) {
+    .sub .pill :global(svg) {
+      display: none;
+    }
   }
 </style>
