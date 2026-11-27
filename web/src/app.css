@@ -10,13 +10,106 @@
   --accent: #f5b942;
   --accent-ink: #1a1200;
   --accent-soft: rgba(245, 185, 66, 0.14);
+  --accent-border: rgba(245, 185, 66, 0.5);
   --danger: #ff6b5e;
+  /* 色の名前つきの値（ライト表示では下で上書きする） */
+  --blue: #8ab8ff;
+  --blue-soft: rgba(110, 170, 255, 0.14);
+  --ab-text: #a9c9ff;
+  --pink: #ff9ecb;
+  --pink-strong: #ffc2de;
+  --pink-soft: rgba(255, 158, 203, 0.14);
+  --green: #7fe0ad;
+  --green-soft: rgba(76, 208, 138, 0.16);
+  --red-text: #ff8a8a;
+  --rec-on: #7a1f1f;
+  --hide-block: #2b2d33;
+  --shadow: rgba(0, 0, 0, 0.6);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --star: #ffc93c;
+  --on-pin: #000;
+  --sel-bg: rgba(120, 170, 255, 0.35);
+  --selection: rgba(120, 170, 255, 0.45);
+  --tag-dark: 0%;
   --radius: 12px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --font: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Segoe UI', sans-serif;
   --reading: 'Charter', 'Iowan Old Style', Georgia, serif;
   color-scheme: dark;
+}
+
+/* ライト表示（設定で「ライト」、または「端末に合わせる」で端末がライトのとき）。
+   既定はダーク。html の data-theme は index.html の先頭で、描画より前に決める */
+:root[data-theme='light'] {
+  --bg: #f6f6f3;
+  --surface: #ffffff;
+  --surface-2: #ebebee;
+  --line: #d8d8dd;
+  --text: #17181b;
+  --text-dim: #565861;
+  --text-faint: #8e9099;
+  --accent: #b06f00;
+  --accent-ink: #ffffff;
+  --accent-soft: rgba(176, 111, 0, 0.12);
+  --accent-border: rgba(176, 111, 0, 0.45);
+  --danger: #d32f2f;
+  --blue: #1f5fc4;
+  --blue-soft: rgba(31, 95, 196, 0.1);
+  --ab-text: #1f5fc4;
+  --pink: #b8306f;
+  --pink-strong: #a0225c;
+  --pink-soft: rgba(184, 48, 111, 0.1);
+  --green: #1d7f4c;
+  --green-soft: rgba(29, 127, 76, 0.12);
+  --red-text: #c62828;
+  --rec-on: #a32020;
+  --hide-block: #d4d5da;
+  --shadow: rgba(0, 0, 0, 0.18);
+  --scrim: rgba(0, 0, 0, 0.35);
+  --star: #e0a100;
+  --on-pin: #ffffff;
+  --sel-bg: rgba(31, 95, 196, 0.18);
+  --selection: rgba(31, 95, 196, 0.25);
+  /* タグの色を文字に使うとき、白い背景でも読めるよう暗くする割合 */
+  --tag-dark: 38%;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme='auto'] {
+    --bg: #f6f6f3;
+    --surface: #ffffff;
+    --surface-2: #ebebee;
+    --line: #d8d8dd;
+    --text: #17181b;
+    --text-dim: #565861;
+    --text-faint: #8e9099;
+    --accent: #b06f00;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(176, 111, 0, 0.12);
+    --accent-border: rgba(176, 111, 0, 0.45);
+    --danger: #d32f2f;
+    --blue: #1f5fc4;
+    --blue-soft: rgba(31, 95, 196, 0.1);
+    --ab-text: #1f5fc4;
+    --pink: #b8306f;
+    --pink-strong: #a0225c;
+    --pink-soft: rgba(184, 48, 111, 0.1);
+    --green: #1d7f4c;
+    --green-soft: rgba(29, 127, 76, 0.12);
+    --red-text: #c62828;
+    --rec-on: #a32020;
+    --hide-block: #d4d5da;
+    --shadow: rgba(0, 0, 0, 0.18);
+    --scrim: rgba(0, 0, 0, 0.35);
+    --star: #e0a100;
+    --on-pin: #ffffff;
+    --sel-bg: rgba(31, 95, 196, 0.18);
+    --selection: rgba(31, 95, 196, 0.25);
+    /* タグの色を文字に使うとき、白い背景でも読めるよう暗くする割合 */
+    --tag-dark: 38%;
+    color-scheme: light;
+  }
 }
 
 * {
@@ -161,7 +254,7 @@ input[type='range'] {
   grid-column: 2;
   font-size: 11px;
   color: var(--accent);
-  border: 1px solid rgba(245, 185, 66, 0.5);
+  border: 1px solid var(--accent-border);
   border-radius: 12px;
   padding: 4px 8px;
   white-space: nowrap;
@@ -193,8 +286,8 @@ input[type='range'] {
 /* 長押しで選んでいる英文の訳は青で示す（再生中の黄色と区別できるように） */
 .transcript .ja.sel-ja,
 .transcript .ja .jas.sel-ja {
-  color: #8cc2ff;
-  background: rgba(90, 169, 255, 0.12);
+  color: var(--blue);
+  background: var(--blue-soft);
   border-radius: 3px;
 }
 
@@ -226,7 +319,7 @@ input[type='range'] {
 
 /* AB リピートの範囲は文字色で示す（背景を付けると単語ごとに四角く区切れて読みにくい） */
 .transcript .w.in-ab {
-  color: #a9c9ff;
+  color: var(--ab-text);
 }
 
 /* マークした単語（蛍光マーカー）。重なるときは段をずらして両方見えるようにする
@@ -253,16 +346,16 @@ input[type='range'] {
   vertical-align: 3px;
   padding: 2px 4px;
   border-radius: 4px;
-  color: #000;
+  color: var(--on-pin);
 }
 .transcript .w.pin-ab-a::before {
   content: 'A';
-  background: #8ab8ff;
+  background: var(--blue);
   margin-right: 3px;
 }
 .transcript .w.pin-ab-b::after {
   content: 'B';
-  background: #8ab8ff;
+  background: var(--blue);
   margin-left: 3px;
 }
 .transcript .w.pin-sec-a::before,
@@ -279,11 +372,11 @@ input[type='range'] {
 /* A と区間の始まりが同じ単語のときは A を優先 */
 .transcript .w.pin-ab-a.pin-sec-a::before {
   content: 'A';
-  background: #8ab8ff;
+  background: var(--blue);
 }
 .transcript .w.pin-ab-b.pin-sec-b::after {
   content: 'B';
-  background: #8ab8ff;
+  background: var(--blue);
 }
 
 /* 背景色だけを変える（余白を足すと行が動いて重くなるため） */
@@ -296,7 +389,7 @@ input[type='range'] {
 /* テキストを隠すモード: まだ表示していない文は、単語の長さの灰色の帯（伏せ字）にする */
 .transcript.hide .s:not(.shown) .w {
   color: transparent !important;
-  background: #2b2d33 !important;
+  background: var(--hide-block) !important;
   background-image: none !important;
   box-shadow: none !important;
   border-radius: 4px !important;
@@ -313,16 +406,16 @@ input[type='range'] {
 }
 .transcript.hide .s:not(.shown) .w::before,
 .transcript.hide .s:not(.shown) .w::after {
-  color: #000;
+  color: var(--on-pin);
 }
 
 /* 長押しで選択している単語（iOS の選択表示が出ないときの代わり） */
 .transcript .w.sel {
-  background: rgba(120, 170, 255, 0.35);
+  background: var(--sel-bg);
   color: var(--text);
-  box-shadow: 0 0 0 2px rgba(120, 170, 255, 0.35);
+  box-shadow: 0 0 0 2px var(--sel-bg);
 }
 
 ::selection {
-  background: rgba(120, 170, 255, 0.45);
+  background: var(--selection);
 }

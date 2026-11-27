@@ -752,7 +752,7 @@
     border: 2px solid var(--line);
     display: grid;
     place-items: center;
-    color: #000;
+    color: var(--accent-ink);
   }
   .check.on {
     background: var(--accent);
@@ -836,11 +836,11 @@
     margin-right: 6px;
     padding: 0 6px;
     border-radius: 8px;
-    background: rgba(255, 158, 203, 0.16);
-    color: #ffc2de;
+    background: var(--pink-soft);
+    color: var(--pink-strong);
   }
   li.playing {
-    background: rgba(255, 158, 203, 0.08);
+    background: color-mix(in srgb, var(--pink-soft) 60%, transparent);
     border-radius: 8px;
   }
   .bottom {
@@ -867,7 +867,7 @@
   .mini-meta {
     flex: none;
     font-size: 12px;
-    color: #ff9ecb;
+    color: var(--pink);
     font-variant-numeric: tabular-nums;
   }
   .mini-body {
@@ -956,12 +956,12 @@
     margin-right: 4px;
   }
   .status.reg {
-    background: rgba(90, 169, 255, 0.16);
-    color: #8cc2ff;
+    background: var(--blue-soft);
+    color: var(--blue);
   }
   .status.mastered {
-    background: rgba(76, 208, 138, 0.16);
-    color: #7fe0ad;
+    background: var(--green-soft);
+    color: var(--green);
   }
   .opt.wide span {
     width: auto;
@@ -982,7 +982,7 @@
     padding: 8px 14px;
     font-size: 13px;
     white-space: nowrap;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 4px 20px var(--shadow);
   }
 
   .tabs {
@@ -1094,11 +1094,11 @@
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--mc) 60%, transparent);
   }
   li.playing .text {
-    color: #fff;
+    color: var(--text);
   }
   .tagl {
     background: color-mix(in srgb, var(--c) 20%, transparent) !important;
-    color: var(--c) !important;
+    color: color-mix(in srgb, var(--c), #000 var(--tag-dark)) !important;
   }
   .body.static {
     cursor: default;
@@ -1118,6 +1118,6 @@
     border-top: 3px solid var(--mc, transparent);
   }
   .mini-meta {
-    color: var(--mc, #ff9ecb) !important;
+    color: color-mix(in srgb, var(--mc, var(--pink)), #000 var(--tag-dark)) !important;
   }
 </style>

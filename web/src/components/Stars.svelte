@@ -30,6 +30,6 @@
     padding: 0;
   }
   .on {
-    color: #ffc93c !important;
+    color: var(--star) !important;
   }
 </style>

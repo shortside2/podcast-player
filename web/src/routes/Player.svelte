@@ -7,6 +7,7 @@
   import MarkEditor from '../components/MarkEditor.svelte';
   import PracticePanel from '../components/PracticePanel.svelte';
   import TranslationSheet from '../components/TranslationSheet.svelte';
+  import ThemePicker from '../components/ThemePicker.svelte';
   import { Translations } from '../lib/transcript/translation';
   import { loadTranslations } from '../lib/transcript/translationStore';
   import { Practice, type PracticeTarget } from '../lib/playback/practice.svelte';
@@ -784,6 +785,10 @@
           </div>
           <button class="pill" class:on={autoMarkAB} onclick={() => setAutoMark(!autoMarkAB)}>{autoMarkAB ? 'オン' : 'オフ'}</button>
         </div>
+        <div class="setting theme">
+          <div class="label">表示</div>
+          <ThemePicker />
+        </div>
         <div class="setting">
           <div>
             <div class="label">訳データ</div>
@@ -969,7 +974,7 @@
   }
   .floating > :global(*) {
     pointer-events: auto;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+    box-shadow: 0 4px 20px var(--shadow);
   }
   .toast {
     background: var(--surface-2);
@@ -1018,7 +1023,7 @@
     align-items: center;
     gap: 4px;
     background: var(--surface-2);
-    border: 1px solid rgba(245, 185, 66, 0.5);
+    border: 1px solid var(--accent-border);
     border-radius: 14px;
     padding: 4px 4px 4px 12px;
     font-size: 12px;
@@ -1041,7 +1046,7 @@
     background: var(--accent-soft);
   }
   .rangebar.ab {
-    background: rgba(110, 170, 255, 0.14);
+    background: var(--blue-soft);
   }
   .rb-main {
     flex: 1;
@@ -1058,7 +1063,7 @@
     color: var(--accent);
   }
   .rangebar.ab .rb-tag {
-    color: #8ab8ff;
+    color: var(--blue);
   }
   .rb-time,
   .rb-count {
@@ -1081,13 +1086,13 @@
     font-size: 12px;
   }
   .rangebar.ab .rb-edit {
-    color: #8ab8ff;
+    color: var(--blue);
   }
   .rangebar.playlist {
-    background: rgba(255, 158, 203, 0.14);
+    background: var(--pink-soft);
   }
   .rangebar.playlist .rb-tag {
-    color: #ff9ecb;
+    color: var(--pink);
   }
   .rb-main.static {
     padding: 6px 4px;
@@ -1102,10 +1107,10 @@
     height: 40px;
     margin-right: 10px;
     border-radius: 10px;
-    color: #8ab8ff;
+    color: var(--blue);
   }
   .rb-mark.mic {
-    color: #ff8a8a;
+    color: var(--red-text);
     width: 40px;
   }
   .rb-mark :global(svg) {
@@ -1150,6 +1155,13 @@
   .label {
     font-size: 15px;
   }
+  .setting.theme .label {
+    flex: none;
+  }
+  .setting.theme :global(.seg) {
+    flex: 1;
+    max-width: 300px;
+  }
   .hint {
     font-size: 12px;
     color: var(--text-dim);
@@ -1191,7 +1203,7 @@
     height: 64px;
     border-radius: 50%;
     background: var(--text);
-    color: #000;
+    color: var(--bg);
     display: grid;
     place-items: center;
   }

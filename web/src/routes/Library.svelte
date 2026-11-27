@@ -10,6 +10,7 @@
   import { saveFile } from '../lib/share';
   import { isIOS, isStandalone } from '../lib/platform';
   import { buildLabel } from '../lib/pwa';
+  import ThemePicker from '../components/ThemePicker.svelte';
   import { router } from '../lib/router.svelte';
 
   const episodes = liveQuery(() => db.episodes.orderBy('createdAt').reverse().toArray());
@@ -140,6 +141,11 @@
   </ul>
 
   <section class="backup">
+    <h2>表示</h2>
+    <ThemePicker />
+  </section>
+
+  <section class="backup">
     <h2>バックアップ</h2>
     <p>範囲・記録・メモを 1 つのファイルに書き出します。iPhone の容量が足りなくなると保存データが消されることがあるので、ときどき書き出しておくと安心です（音声とスクリプトは含みません）。</p>
     <div class="row">
@@ -190,7 +196,7 @@
     line-height: 1.6;
   }
   .notice {
-    border-color: rgba(245, 185, 66, 0.4);
+    border-color: var(--accent-border);
   }
   .notice p,
   .messages p,

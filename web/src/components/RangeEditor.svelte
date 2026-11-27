@@ -145,7 +145,7 @@
   .editor {
     display: grid;
     gap: 8px;
-    --c: #8ab8ff;
+    --c: var(--blue);
   }
   .editor.sec {
     --c: var(--accent);
@@ -181,7 +181,7 @@
     padding: 2px 5px;
     border-radius: 4px;
     background: var(--c);
-    color: #000;
+    color: var(--on-pin);
   }
   .t {
     font-size: 16px;

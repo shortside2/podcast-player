@@ -153,7 +153,7 @@
     gap: 6px;
     font-size: 13px;
     font-weight: 700;
-    color: #ff8a8a;
+    color: var(--red-text);
   }
   .title :global(svg) {
     width: 16px;
@@ -191,7 +191,7 @@
     font-weight: 600;
   }
   .rec.on {
-    background: #7a1f1f;
+    background: var(--rec-on);
   }
   .rec :global(svg) {
     width: 18px;

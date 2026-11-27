@@ -279,7 +279,7 @@
     color: var(--accent);
   }
   .kind.ab {
-    color: #8ab8ff;
+    color: var(--blue);
   }
   .name {
     font-size: 15px;
